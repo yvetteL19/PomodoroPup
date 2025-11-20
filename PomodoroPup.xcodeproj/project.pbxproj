@@ -32,8 +32,8 @@
 		C3AE8CA92ECE98C800F7E945 = {
 			isa = PBXGroup;
 			children = (
-				C3AE8CB42ECE98C800F7E945 /* PomodoroPup */,
 				C3AE8CB32ECE98C800F7E945 /* Products */,
+				C3AE8CB42ECE98C800F7E945 /* PomodoroPup */,
 			);
 			sourceTree = "<group>";
 		};
@@ -254,6 +254,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -279,6 +280,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
