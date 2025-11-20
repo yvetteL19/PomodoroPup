@@ -61,9 +61,23 @@ struct ContentView: View {
             }
             .padding(.bottom)
 
-            Text("累计完成: \(vm.completedPomodoros) 🍅")
-                .font(.caption).foregroundColor(.secondary)
-                .padding(.bottom, 10)
+            VStack(spacing: 4) {
+                // 周期进度指示器
+                if vm.timerState != .stopped {
+                    HStack(spacing: 6) {
+                        ForEach(0..<vm.longBreakInterval, id: \.self) { index in
+                            Circle()
+                                .fill(index < vm.pomodorosInCycle ? Color.black : Color.gray.opacity(0.3))
+                                .frame(width: 8, height: 8)
+                        }
+                    }
+                    .padding(.bottom, 4)
+                }
+
+                Text("累计完成: \(vm.completedPomodoros) 🍅")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+            .padding(.bottom, 10)
         }
         .frame(width: 320)
         .background(Color.white)

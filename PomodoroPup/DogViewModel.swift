@@ -84,13 +84,31 @@ class DogViewModel: ObservableObject {
 
     // 设置项
     @Published var workDuration: TimeInterval = 25 * 60 {
-        didSet { saveState() }
+        didSet {
+            saveState()
+            // 如果当前是停止状态，同步更新显示时间
+            if timerState == .stopped {
+                remainingTime = workDuration
+            }
+        }
     }
     @Published var shortBreakDuration: TimeInterval = 5 * 60 {
-        didSet { saveState() }
+        didSet {
+            saveState()
+            // 如果当前是短休息状态且未运行，同步更新显示时间
+            if timerState == .shortBreak && !isTimerRunning {
+                remainingTime = shortBreakDuration
+            }
+        }
     }
     @Published var longBreakDuration: TimeInterval = 15 * 60 {
-        didSet { saveState() }
+        didSet {
+            saveState()
+            // 如果当前是长休息状态且未运行，同步更新显示时间
+            if timerState == .longBreak && !isTimerRunning {
+                remainingTime = longBreakDuration
+            }
+        }
     }
     @Published var longBreakInterval: Int = 4 {
         didSet { saveState() }
@@ -323,6 +341,9 @@ class DogViewModel: ObservableObject {
                 currentStreakPomodoros += 1
                 pomodorosInCycle += 1
                 checkAchievements()
+            } else {
+                // 跳过时也增加周期计数（但不增加完成数）
+                pomodorosInCycle += 1
             }
 
             // 触发跳跃动画
@@ -334,13 +355,17 @@ class DogViewModel: ObservableObject {
             }
 
             // 判断长休息还是短休息
+            // 逻辑：完成N个番茄后（pomodorosInCycle达到longBreakInterval），进入长休息
+            // 例如：longBreakInterval=4时，第1,2,3个番茄后是短休息，第4个番茄后是长休息
             if pomodorosInCycle >= longBreakInterval {
                 timerState = .longBreak
                 remainingTime = longBreakDuration
-                pomodorosInCycle = 0
+                pomodorosInCycle = 0  // 重置周期，下一轮重新开始
+                print("🛏️ 完成\(longBreakInterval)个番茄，进入长休息")
             } else {
                 timerState = .shortBreak
                 remainingTime = shortBreakDuration
+                print("☕️ 完成第\(pomodorosInCycle)个番茄，进入短休息")
             }
 
             // 播放音效：汪！

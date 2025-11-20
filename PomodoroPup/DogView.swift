@@ -48,26 +48,36 @@ struct DogView: View {
                         .frame(width: 200, height: 200)
                         .offset(y: collarAdjust)
 
-                    // --- 装备层 ---
-                    // 眼镜：中间偏下
+                    // --- 装备层 (环绕式布局) ---
+                    // 眼镜：必须在脸上（最重要，保持原位）
                     if vm.unlockedAchievements.contains("icon_glasses") {
-                        overlayImage("icon_glasses", w: 75, x: 0, y: -15 + collarAdjust)
+                        overlayImage("icon_glasses", w: 70, x: 0, y: -12 + collarAdjust)
                     }
-                    // 皇冠：头顶中央
+
+                    // 皇冠：正上方（第二重要）
                     if vm.unlockedAchievements.contains("icon_crown") {
-                        overlayImage("icon_crown", w: 55, x: 0, y: -100 + collarAdjust)
+                        overlayImage("icon_crown", w: 50, x: 0, y: -115 + collarAdjust)
                     }
-                    // 骨头：左下角
-                    if vm.unlockedAchievements.contains("icon_bone") {
-                        overlayImage("icon_bone", w: 35, x: -75, y: 85 + collarAdjust, rotate: -25)
-                    }
-                    // 灯泡：右上角
+
+                    // 以下3个成就环绕分布
+                    // 灯泡：右上方（1点钟方向）
                     if vm.unlockedAchievements.contains("icon_bulb") {
-                        overlayImage("icon_bulb", w: 28, x: 85, y: -55 + collarAdjust)
+                        overlayImage("icon_bulb", w: 24, x: 100, y: -75 + collarAdjust)
                     }
-                    // 彩蛋派对帽：左上角
+
+                    // 骨头：左下方（7点钟方向）
+                    if vm.unlockedAchievements.contains("icon_bone") {
+                        overlayImage("icon_bone", w: 30, x: -95, y: 75 + collarAdjust, rotate: -20)
+                    }
+
+                    // 派对帽：左上方（11点钟方向）
                     if vm.unlockedAchievements.contains("icon_party") {
-                         overlayImage("icon_party", w: 35, x: -70, y: -85 + collarAdjust, rotate: -12)
+                         overlayImage("icon_party", w: 32, x: -100, y: -75 + collarAdjust, rotate: -10)
+                    }
+
+                    // 脚印徽章：右下方（5点钟方向）
+                    if vm.unlockedAchievements.contains("icon_paw") {
+                        overlayImage("icon_paw", w: 26, x: 95, y: 75 + collarAdjust, rotate: 15)
                     }
 
                     // 闪光动画（成就解锁）
