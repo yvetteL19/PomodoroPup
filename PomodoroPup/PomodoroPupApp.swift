@@ -28,12 +28,9 @@ struct MenuBarLabel: View {
         HStack(spacing: 6) {
             // 1. 状态图标逻辑
             if vm.timerState == .stopped {
-                // 停止状态：使用自定义 icon_stopped
-                Image("icon_stopped")
-                    .resizable()
-                    .renderingMode(.template)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 16, height: 16)
+                // 停止状态：使用系统图标 timer
+                Image(systemName: "timer")
+                    .font(.system(size: 14))
 
             } else if vm.timerState == .working {
                 // 工作状态：使用系统的小脚印
@@ -41,12 +38,9 @@ struct MenuBarLabel: View {
                     .font(.system(size: 14))
 
             } else {
-                // 休息状态 (Short/Long Break)：使用自定义 icon_break
-                Image("icon_break")
-                    .resizable()
-                    .renderingMode(.template)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 16, height: 16)
+                // 休息状态 (Short/Long Break)：使用系统图标 cup.and.saucer
+                Image(systemName: "cup.and.saucer.fill")
+                    .font(.system(size: 13))
             }
 
             // 2. 倒计时文本

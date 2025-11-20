@@ -1,5 +1,34 @@
 import SwiftUI
 
+// 时间设置行组件
+struct DurationRow: View {
+    let label: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField("", value: $value, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 60)
+                .multilineTextAlignment(.center)
+                .onChange(of: value) { _, newValue in
+                    // 限制输入范围
+                    if newValue < range.lowerBound {
+                        value = range.lowerBound
+                    } else if newValue > range.upperBound {
+                        value = range.upperBound
+                    }
+                }
+            Text("分钟")
+                .foregroundColor(.secondary)
+                .font(.caption)
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject var vm: DogViewModel
     @Environment(\.dismiss) var dismiss
@@ -13,49 +42,51 @@ struct SettingsView: View {
                     // 时间设置
                     GroupBox(label: Label("时间设置", systemImage: "clock")) {
                         VStack(spacing: 12) {
-                            HStack {
-                                Text("工作时长")
-                                Spacer()
-                                Text("\(Int(vm.workDuration / 60)) 分钟")
-                                    .foregroundColor(.secondary)
-                                Stepper("", value: Binding(
-                                    get: { vm.workDuration / 60 },
-                                    set: { vm.workDuration = $0 * 60 }
-                                ), in: 1...60)
-                                .labelsHidden()
-                            }
+                            DurationRow(
+                                label: "工作时长",
+                                value: Binding(
+                                    get: { Int(vm.workDuration / 60) },
+                                    set: { vm.workDuration = TimeInterval($0) * 60 }
+                                ),
+                                range: 1...120
+                            )
 
-                            HStack {
-                                Text("短休息时长")
-                                Spacer()
-                                Text("\(Int(vm.shortBreakDuration / 60)) 分钟")
-                                    .foregroundColor(.secondary)
-                                Stepper("", value: Binding(
-                                    get: { vm.shortBreakDuration / 60 },
-                                    set: { vm.shortBreakDuration = $0 * 60 }
-                                ), in: 1...30)
-                                .labelsHidden()
-                            }
+                            DurationRow(
+                                label: "短休息时长",
+                                value: Binding(
+                                    get: { Int(vm.shortBreakDuration / 60) },
+                                    set: { vm.shortBreakDuration = TimeInterval($0) * 60 }
+                                ),
+                                range: 1...60
+                            )
 
-                            HStack {
-                                Text("长休息时长")
-                                Spacer()
-                                Text("\(Int(vm.longBreakDuration / 60)) 分钟")
-                                    .foregroundColor(.secondary)
-                                Stepper("", value: Binding(
-                                    get: { vm.longBreakDuration / 60 },
-                                    set: { vm.longBreakDuration = $0 * 60 }
-                                ), in: 5...60)
-                                .labelsHidden()
-                            }
+                            DurationRow(
+                                label: "长休息时长",
+                                value: Binding(
+                                    get: { Int(vm.longBreakDuration / 60) },
+                                    set: { vm.longBreakDuration = TimeInterval($0) * 60 }
+                                ),
+                                range: 5...120
+                            )
 
                             HStack {
                                 Text("长休息周期")
                                 Spacer()
-                                Text("每 \(vm.longBreakInterval) 个番茄")
+                                TextField("", value: $vm.longBreakInterval, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 50)
+                                    .multilineTextAlignment(.center)
+                                    .onChange(of: vm.longBreakInterval) { _, newValue in
+                                        // 限制输入范围 2-10
+                                        if newValue < 2 {
+                                            vm.longBreakInterval = 2
+                                        } else if newValue > 10 {
+                                            vm.longBreakInterval = 10
+                                        }
+                                    }
+                                Text("个番茄")
                                     .foregroundColor(.secondary)
-                                Stepper("", value: $vm.longBreakInterval, in: 2...10)
-                                    .labelsHidden()
+                                    .font(.caption)
                             }
                         }
                         .padding(.vertical, 4)

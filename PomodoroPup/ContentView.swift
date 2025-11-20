@@ -42,10 +42,17 @@ struct ContentView: View {
                     Button("开始专注") { vm.startTimer() }
                         .buttonStyle(PrimaryButtonStyle())
                 } else {
-                    Button("暂停") { vm.pauseTimer() }
-                        .buttonStyle(SecondaryButtonStyle())
+                    if vm.isTimerRunning {
+                        Button("暂停") { vm.pauseTimer() }
+                            .buttonStyle(SecondaryButtonStyle())
+                    } else {
+                        Button("继续") { vm.startTimer() }
+                            .buttonStyle(PrimaryButtonStyle())
+                    }
+
                     Button("跳过") { vm.skipPhase() }
                         .buttonStyle(SecondaryButtonStyle())
+
                     if vm.timerState == .working {
                         Button("重置") { vm.resetTimer() }
                             .buttonStyle(SecondaryButtonStyle())

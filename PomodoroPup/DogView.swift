@@ -49,21 +49,25 @@ struct DogView: View {
                         .offset(y: collarAdjust)
 
                     // --- 装备层 ---
+                    // 眼镜：中间偏下
                     if vm.unlockedAchievements.contains("icon_glasses") {
-                        overlayImage("icon_glasses", w: 80, x: 0, y: -20 + collarAdjust)
+                        overlayImage("icon_glasses", w: 75, x: 0, y: -15 + collarAdjust)
                     }
+                    // 皇冠：头顶中央
                     if vm.unlockedAchievements.contains("icon_crown") {
-                        overlayImage("icon_crown", w: 60, x: 5, y: -95 + collarAdjust)
+                        overlayImage("icon_crown", w: 55, x: 0, y: -100 + collarAdjust)
                     }
+                    // 骨头：左下角
                     if vm.unlockedAchievements.contains("icon_bone") {
-                        overlayImage("icon_bone", w: 40, x: -70, y: 80 + collarAdjust, rotate: -30)
+                        overlayImage("icon_bone", w: 35, x: -75, y: 85 + collarAdjust, rotate: -25)
                     }
+                    // 灯泡：右上角
                     if vm.unlockedAchievements.contains("icon_bulb") {
-                        overlayImage("icon_bulb", w: 30, x: 80, y: -60 + collarAdjust)
+                        overlayImage("icon_bulb", w: 28, x: 85, y: -55 + collarAdjust)
                     }
-                    // 彩蛋：派对皇冠
+                    // 彩蛋派对帽：左上角
                     if vm.unlockedAchievements.contains("icon_party") {
-                         overlayImage("icon_party", w: 40, x: -60, y: -80 + collarAdjust, rotate: -15)
+                         overlayImage("icon_party", w: 35, x: -70, y: -85 + collarAdjust, rotate: -12)
                     }
 
                     // 闪光动画（成就解锁）

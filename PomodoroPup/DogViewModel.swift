@@ -108,6 +108,9 @@ class DogViewModel: ObservableObject {
     @Published var shouldTriggerSparkleAnimation: Bool = false
     @Published var shouldFlashMenuBar: Bool = false
 
+    // 计时器运行状态
+    @Published var isTimerRunning: Bool = false
+
     private var timer: AnyCancellable?
     private var breakTimeTimer: AnyCancellable?
 
@@ -263,6 +266,7 @@ class DogViewModel: ObservableObject {
         if timer == nil {
             timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
                 .sink { [weak self] _ in self?.tick() }
+            isTimerRunning = true
         }
 
         // 如果是休息状态，开始计时休息时长
@@ -276,6 +280,7 @@ class DogViewModel: ObservableObject {
         timer = nil
         breakTimeTimer?.cancel()
         breakTimeTimer = nil
+        isTimerRunning = false
     }
 
     func skipPhase() {
@@ -290,6 +295,7 @@ class DogViewModel: ObservableObject {
         pauseTimer()
         timerState = .stopped
         remainingTime = workDuration
+        isTimerRunning = false
     }
 
     private func tick() {
@@ -349,6 +355,11 @@ class DogViewModel: ObservableObject {
             // 休息结束 -> 停止
             breakTimeTimer?.cancel()
             breakTimeTimer = nil
+
+            // 停止主计时器
+            timer?.cancel()
+            timer = nil
+            isTimerRunning = false
 
             // 触发整理衣领动画
             if animationEnabled {
