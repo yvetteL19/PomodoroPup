@@ -38,7 +38,7 @@ struct MenuBarLabel: View {
                     .font(.system(size: 14))
 
             } else {
-                // 休息状态 (Short/Long Break)：使用系统图标 cup.and.saucer
+                // 休息状态：使用系统图标 cup.and.saucer
                 Image(systemName: "cup.and.saucer.fill")
                     .font(.system(size: 13))
             }

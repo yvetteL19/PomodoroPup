@@ -65,7 +65,7 @@ struct ContentView: View {
                 // 周期进度指示器
                 if vm.timerState != .stopped {
                     HStack(spacing: 6) {
-                        ForEach(0..<vm.longBreakInterval, id: \.self) { index in
+                        ForEach(0..<vm.dailyGoal, id: \.self) { index in
                             Circle()
                                 .fill(index < vm.pomodorosInCycle ? Color.black : Color.gray.opacity(0.3))
                                 .frame(width: 8, height: 8)
@@ -93,7 +93,7 @@ struct ContentView: View {
         switch vm.timerState {
         case .stopped: return "准备好了吗？"
         case .working: return "专注于工作中..."
-        case .shortBreak, .longBreak: return "休息一下吧！"
+        case .onBreak: return "休息一下吧！"
         }
     }
 }

@@ -3,7 +3,7 @@ import Combine
 
 // 状态定义
 enum TimerState: String, Codable {
-    case stopped, working, shortBreak, longBreak
+    case stopped, working, onBreak
 }
 
 // 成就定义
@@ -92,25 +92,16 @@ class DogViewModel: ObservableObject {
             }
         }
     }
-    @Published var shortBreakDuration: TimeInterval = 5 * 60 {
+    @Published var breakDuration: TimeInterval = 5 * 60 {
         didSet {
             saveState()
-            // 如果当前是短休息状态且未运行，同步更新显示时间
-            if timerState == .shortBreak && !isTimerRunning {
-                remainingTime = shortBreakDuration
+            // 如果当前是休息状态且未运行，同步更新显示时间
+            if timerState == .onBreak && !isTimerRunning {
+                remainingTime = breakDuration
             }
         }
     }
-    @Published var longBreakDuration: TimeInterval = 15 * 60 {
-        didSet {
-            saveState()
-            // 如果当前是长休息状态且未运行，同步更新显示时间
-            if timerState == .longBreak && !isTimerRunning {
-                remainingTime = longBreakDuration
-            }
-        }
-    }
-    @Published var longBreakInterval: Int = 4 {
+    @Published var dailyGoal: Int = 4 {
         didSet { saveState() }
     }
     @Published var soundEnabled: Bool = true {
@@ -143,9 +134,8 @@ class DogViewModel: ObservableObject {
     private let kTodayPomodoros = "todayPomodoros"
     private let kLastActiveDate = "lastActiveDate"
     private let kWorkDuration = "workDuration"
-    private let kShortBreakDuration = "shortBreakDuration"
-    private let kLongBreakDuration = "longBreakDuration"
-    private let kLongBreakInterval = "longBreakInterval"
+    private let kBreakDuration = "breakDuration"
+    private let kDailyGoal = "dailyGoal"
     private let kSoundEnabled = "soundEnabled"
     private let kAnimationEnabled = "animationEnabled"
 
@@ -175,9 +165,8 @@ class DogViewModel: ObservableObject {
         defaults.set(todayPomodoros, forKey: kTodayPomodoros)
         defaults.set(lastActiveDate, forKey: kLastActiveDate)
         defaults.set(workDuration, forKey: kWorkDuration)
-        defaults.set(shortBreakDuration, forKey: kShortBreakDuration)
-        defaults.set(longBreakDuration, forKey: kLongBreakDuration)
-        defaults.set(longBreakInterval, forKey: kLongBreakInterval)
+        defaults.set(breakDuration, forKey: kBreakDuration)
+        defaults.set(dailyGoal, forKey: kDailyGoal)
         defaults.set(soundEnabled, forKey: kSoundEnabled)
         defaults.set(animationEnabled, forKey: kAnimationEnabled)
     }
@@ -207,14 +196,11 @@ class DogViewModel: ObservableObject {
         let savedWorkDuration = defaults.double(forKey: kWorkDuration)
         if savedWorkDuration > 0 { workDuration = savedWorkDuration }
 
-        let savedShortBreak = defaults.double(forKey: kShortBreakDuration)
-        if savedShortBreak > 0 { shortBreakDuration = savedShortBreak }
+        let savedBreakDuration = defaults.double(forKey: kBreakDuration)
+        if savedBreakDuration > 0 { breakDuration = savedBreakDuration }
 
-        let savedLongBreak = defaults.double(forKey: kLongBreakDuration)
-        if savedLongBreak > 0 { longBreakDuration = savedLongBreak }
-
-        let savedInterval = defaults.integer(forKey: kLongBreakInterval)
-        if savedInterval > 0 { longBreakInterval = savedInterval }
+        let savedDailyGoal = defaults.integer(forKey: kDailyGoal)
+        if savedDailyGoal > 0 { dailyGoal = savedDailyGoal }
 
         if defaults.object(forKey: kSoundEnabled) != nil {
             soundEnabled = defaults.bool(forKey: kSoundEnabled)
@@ -288,7 +274,7 @@ class DogViewModel: ObservableObject {
         }
 
         // 如果是休息状态，开始计时休息时长
-        if timerState == .shortBreak || timerState == .longBreak {
+        if timerState == .onBreak {
             startBreakTimeTracking()
         }
     }
@@ -341,32 +327,11 @@ class DogViewModel: ObservableObject {
                 currentStreakPomodoros += 1
                 pomodorosInCycle += 1
                 checkAchievements()
-            } else {
-                // 跳过时也增加周期计数（但不增加完成数）
-                pomodorosInCycle += 1
             }
 
-            // 触发跳跃动画
-            if animationEnabled {
-                shouldTriggerJumpAnimation = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.shouldTriggerJumpAnimation = false
-                }
-            }
-
-            // 判断长休息还是短休息
-            // 逻辑：完成N个番茄后（pomodorosInCycle达到longBreakInterval），进入长休息
-            // 例如：longBreakInterval=4时，第1,2,3个番茄后是短休息，第4个番茄后是长休息
-            if pomodorosInCycle >= longBreakInterval {
-                timerState = .longBreak
-                remainingTime = longBreakDuration
-                pomodorosInCycle = 0  // 重置周期，下一轮重新开始
-                print("🛏️ 完成\(longBreakInterval)个番茄，进入长休息")
-            } else {
-                timerState = .shortBreak
-                remainingTime = shortBreakDuration
-                print("☕️ 完成第\(pomodorosInCycle)个番茄，进入短休息")
-            }
+            // 进入休息
+            timerState = .onBreak
+            remainingTime = breakDuration
 
             // 播放音效：汪！
             if soundEnabled {
@@ -377,25 +342,26 @@ class DogViewModel: ObservableObject {
             startBreakTimeTracking()
 
         } else {
-            // 休息结束 -> 停止
+            // 休息结束 -> 工作（如果未达到每日目标）或停止
             breakTimeTimer?.cancel()
             breakTimeTimer = nil
 
-            // 停止主计时器
-            timer?.cancel()
-            timer = nil
-            isTimerRunning = false
-
-            // 触发整理衣领动画
-            if animationEnabled {
-                shouldTriggerCollarAnimation = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.shouldTriggerCollarAnimation = false
-                }
+            // 检查是否完成每日目标
+            if pomodorosInCycle >= dailyGoal {
+                // 达到每日目标，停止
+                timer?.cancel()
+                timer = nil
+                isTimerRunning = false
+                timerState = .stopped
+                remainingTime = workDuration
+                pomodorosInCycle = 0  // 重置周期
+                print("🎉 完成每日目标\(dailyGoal)个番茄！")
+            } else {
+                // 未达到目标，继续下一个番茄
+                timerState = .working
+                remainingTime = workDuration
+                print("💪 继续第\(pomodorosInCycle + 1)个番茄")
             }
-
-            timerState = .stopped
-            remainingTime = workDuration
 
             // 播放音效：吁~
             if soundEnabled {

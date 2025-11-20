@@ -43,7 +43,7 @@ struct SettingsView: View {
                     GroupBox(label: Label("时间设置", systemImage: "clock")) {
                         VStack(spacing: 12) {
                             DurationRow(
-                                label: "工作时长",
+                                label: "专注时长",
                                 value: Binding(
                                     get: { Int(vm.workDuration / 60) },
                                     set: { vm.workDuration = TimeInterval($0) * 60 }
@@ -52,36 +52,27 @@ struct SettingsView: View {
                             )
 
                             DurationRow(
-                                label: "短休息时长",
+                                label: "休息时长",
                                 value: Binding(
-                                    get: { Int(vm.shortBreakDuration / 60) },
-                                    set: { vm.shortBreakDuration = TimeInterval($0) * 60 }
+                                    get: { Int(vm.breakDuration / 60) },
+                                    set: { vm.breakDuration = TimeInterval($0) * 60 }
                                 ),
                                 range: 1...60
                             )
 
-                            DurationRow(
-                                label: "长休息时长",
-                                value: Binding(
-                                    get: { Int(vm.longBreakDuration / 60) },
-                                    set: { vm.longBreakDuration = TimeInterval($0) * 60 }
-                                ),
-                                range: 5...120
-                            )
-
                             HStack {
-                                Text("长休息周期")
+                                Text("每日目标")
                                 Spacer()
-                                TextField("", value: $vm.longBreakInterval, format: .number)
+                                TextField("", value: $vm.dailyGoal, format: .number)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 50)
                                     .multilineTextAlignment(.center)
-                                    .onChange(of: vm.longBreakInterval) { _, newValue in
-                                        // 限制输入范围 2-10
-                                        if newValue < 2 {
-                                            vm.longBreakInterval = 2
-                                        } else if newValue > 10 {
-                                            vm.longBreakInterval = 10
+                                    .onChange(of: vm.dailyGoal) { _, newValue in
+                                        // 限制输入范围 1-20
+                                        if newValue < 1 {
+                                            vm.dailyGoal = 1
+                                        } else if newValue > 20 {
+                                            vm.dailyGoal = 20
                                         }
                                     }
                                 Text("个番茄")
