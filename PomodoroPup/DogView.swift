@@ -1,79 +1,73 @@
 import SwiftUI
+import AppKit
 
 struct DogView: View {
     @EnvironmentObject var vm: DogViewModel
     @State private var isBreathing = false
-    @State private var isDancing = false
-    @State private var jumpScale: CGFloat = 1.0
-    @State private var collarAdjust: CGFloat = 0
 
     var body: some View {
         ZStack {
-            // 所有状态都使用同一个小狗图片
-            ZStack {
-                Image("dog_focus")
+            if vm.timerState == .onBreak {
+                if vm.animationEnabled {
+                    // 休息状态且动画开启：播放 GIF
+                    GifImageView(gifName: "dog_rest", size: CGSize(width: 150, height: 150))
+                } else {
+                    // 休息状态但动画关闭：显示休息静态图
+                    Image("dog_rest_static")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 150, height: 150)
+                }
+            } else {
+                // 工作/停止状态：静态图片
+                Image("dog_work")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 200, height: 200)
-
-                // 闪光动画（成就解锁）
-                if vm.shouldTriggerSparkleAnimation {
-                    SparkleEffect()
-                }
-            }
-            // 呼吸动画：工作和休息时都有
-            .scaleEffect((vm.timerState == .working || vm.timerState == .onBreak) && vm.animationEnabled ? (isBreathing ? 1.02 : 0.98) : 1.0)
-            .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: isBreathing)
-            .onAppear {
-                if vm.timerState == .working || vm.timerState == .onBreak {
-                    isBreathing = true
-                }
-            }
-            .onChange(of: vm.timerState) { _, newState in
-                isBreathing = (newState == .working || newState == .onBreak)
+                    .frame(width: 150, height: 150)
+                    // 工作时呼吸动画
+                    .scaleEffect(vm.timerState == .working && vm.animationEnabled && isBreathing ? 1.02 : 0.98)
+                    .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: isBreathing)
             }
         }
         .frame(height: 260)
+        .onAppear {
+            if vm.timerState == .working {
+                isBreathing = true
+            }
+        }
+        .onChange(of: vm.timerState) { _, newState in
+            isBreathing = (newState == .working)
+        }
     }
 
-    // 辅助函数：简化图标叠加代码
-    func overlayImage(_ name: String, w: CGFloat, x: CGFloat, y: CGFloat, rotate: Double = 0) -> some View {
-        Image(name)
-            .resizable()
-            .renderingMode(.template)
-            .foregroundColor(.black)
-            .scaledToFit()
-            .frame(width: w)
-            .rotationEffect(.degrees(rotate))
-            .offset(x: x, y: y)
-    }
 }
 
-// 闪光特效
-struct SparkleEffect: View {
-    @State private var isAnimating = false
+// GIF 播放视图
+struct GifImageView: NSViewRepresentable {
+    let gifName: String
+    var size: CGSize = CGSize(width: 100, height: 100)
 
-    var body: some View {
-        ZStack {
-            ForEach(0..<8) { i in
-                Circle()
-                    .fill(Color.yellow.opacity(0.8))
-                    .frame(width: 8, height: 8)
-                    .offset(x: isAnimating ? cos(Double(i) * .pi / 4) * 100 : 0,
-                            y: isAnimating ? sin(Double(i) * .pi / 4) * 100 : 0)
-                    .opacity(isAnimating ? 0 : 1)
-            }
+    func makeNSView(context: Context) -> NSView {
+        let containerView = NSView(frame: NSRect(origin: .zero, size: size))
+        let imageView = NSImageView(frame: NSRect(origin: .zero, size: size))
 
-            // 中心闪光
-            Circle()
-                .stroke(Color.yellow, lineWidth: 3)
-                .frame(width: isAnimating ? 120 : 40, height: isAnimating ? 120 : 40)
-                .opacity(isAnimating ? 0 : 1)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.animates = true
+        imageView.autoresizingMask = [.width, .height]
+
+        if let asset = NSDataAsset(name: gifName) {
+            imageView.image = NSImage(data: asset.data)
         }
-        .onAppear {
-            withAnimation(.easeOut(duration: 1.5)) {
-                isAnimating = true
-            }
+
+        containerView.addSubview(imageView)
+        return containerView
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // 更新尺寸
+        nsView.frame.size = size
+        if let imageView = nsView.subviews.first as? NSImageView {
+            imageView.frame.size = size
         }
     }
 }

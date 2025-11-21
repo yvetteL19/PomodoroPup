@@ -1,0 +1,72 @@
+/* ContentView */
+"status.ready" = "Ready to focus?";
+"status.working" = "Focusing...";
+"status.break" = "On break";
+"button.start" = "Start";
+"button.pause" = "Pause";
+"button.resume" = "Resume";
+"button.skip" = "Skip";
+"button.reset" = "Reset";
+"stats.total" = "Total: %d pomodoros";
+"goal.completed" = "Goal completed!";
+"achievements.title" = "Achievements";
+"achievements.until" = "Until %@";
+"achievements.progress" = "%d/%d";
+
+/* SettingsView */
+"settings.title" = "Settings";
+"settings.time" = "Time Settings";
+"settings.focus_duration" = "Focus Duration";
+"settings.break_duration" = "Break Duration";
+"settings.cycles" = "Pomodoro Cycles";
+"settings.minutes" = "min";
+"settings.rounds" = "rounds";
+"settings.companion" = "Companion Mode";
+"settings.sound" = "Sound";
+"settings.animations" = "Animations";
+"settings.notifications" = "Notifications";
+"settings.on" = "On";
+"settings.off" = "Off";
+"settings.statistics" = "Statistics";
+"settings.total_pomodoros" = "Total Pomodoros";
+"settings.today" = "Today";
+"settings.streak_days" = "Streak Days";
+"settings.streak_pomodoros" = "Streak Pomodoros";
+"settings.total_break" = "Total Break";
+"settings.days" = "days";
+"settings.times" = "times";
+"settings.minutes_unit" = "minutes";
+"settings.done" = "Done";
+
+/* Achievements */
+"achievement.novice.name" = "Rookie Pup";
+"achievement.novice.desc" = "Complete 10 pomodoros";
+"achievement.efficient.name" = "Efficient Partner";
+"achievement.efficient.desc" = "Complete 50 pomodoros";
+"achievement.master.name" = "Focus Master";
+"achievement.master.desc" = "Complete 200 pomodoros";
+"achievement.habit.name" = "Daily Streak";
+"achievement.habit.desc" = "3 consecutive days with 4+ pomodoros";
+"achievement.deepWork.name" = "Deep Worker";
+"achievement.deepWork.desc" = "3 consecutive uninterrupted pomodoros";
+"achievement.partyKing.name" = "Dance King";
+"achievement.partyKing.desc" = "300 minutes of break time";
+
+/* Onboarding */
+"onboarding.welcome.title" = "Meet Your Focus Buddy!";
+"onboarding.welcome.subtitle" = "PomodoroPup helps you stay focused with the Pomodoro Technique.";
+"onboarding.goal.title" = "Set Your Daily Goal";
+"onboarding.goal.subtitle" = "How many pomodoros do you want to complete each day?";
+"onboarding.notification.title" = "Stay On Track";
+"onboarding.notification.subtitle" = "Get gentle reminders when it's time to take a break or continue working.";
+"onboarding.next" = "Next";
+"onboarding.enable" = "Enable Notifications";
+"onboarding.skip" = "Skip for now";
+
+/* Notifications */
+"notification.break_title" = "Time for a break! 🎉";
+"notification.break_body" = "Great work! Take a 5-minute rest.";
+"notification.goal_title" = "Goal completed! 🏆";
+"notification.goal_body" = "You've finished %d pomodoros today!";
+"notification.continue_title" = "Break's over! 💪";
+"notification.continue_body" = "Starting pomodoro #%d";

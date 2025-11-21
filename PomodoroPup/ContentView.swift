@@ -4,6 +4,8 @@ struct ContentView: View {
     @EnvironmentObject var vm: DogViewModel
     @State private var showAchievements = false
     @State private var showSettings = false
+    @State private var trophyShake = false
+    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
 
     var body: some View {
         VStack(spacing: 16) {
@@ -17,15 +19,28 @@ struct ContentView: View {
                     Image(systemName: "gearshape")
                 }.buttonStyle(.plain)
 
+                #if DEBUG
                 // 调试：一键解锁
                 Button(action: { vm.debugUnlockAll() }) {
                     Image(systemName: "hammer.fill")
                 }.buttonStyle(.plain)
+                #endif
 
                 // 成就墙按钮
                 Button(action: { showAchievements.toggle() }) {
                     Image(systemName: "trophy")
-                }.buttonStyle(.plain)
+                }
+                .buttonStyle(.plain)
+                .rotationEffect(.degrees(trophyShake ? -10 : 0))
+                .animation(.default.repeatCount(6, autoreverses: true).speed(6), value: trophyShake)
+                .onChange(of: vm.shouldFlashMenuBar) { _, shouldFlash in
+                    if shouldFlash {
+                        trophyShake = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            trophyShake = false
+                        }
+                    }
+                }
             }
             .padding([.top, .horizontal])
 
@@ -36,51 +51,60 @@ struct ContentView: View {
             Text(vm.timeString)
                 .font(.system(size: 48, weight: .bold, design: .monospaced))
 
+            // 周期进度指示器
+            VStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    ForEach(0..<vm.dailyGoal, id: \.self) { index in
+                        Circle()
+                            .fill(index < vm.pomodorosInCycle ? Color.black : Color.gray.opacity(0.2))
+                            .frame(width: 6, height: 6)
+                    }
+                }
+
+                // 目标完成提示
+                if vm.pomodorosInCycle >= vm.dailyGoal {
+                    Text("🎉 " + NSLocalizedString("goal.completed", comment: ""))
+                        .font(.caption)
+                        .foregroundColor(.green)
+                        .bold()
+                }
+            }
+            .padding(.top, 4)
+
             // 按钮区
             HStack(spacing: 12) {
                 if vm.timerState == .stopped {
-                    Button("开始专注") { vm.startTimer() }
+                    Button(NSLocalizedString("button.start", comment: "")) { vm.startTimer() }
                         .buttonStyle(PrimaryButtonStyle())
                 } else {
                     if vm.isTimerRunning {
-                        Button("暂停") { vm.pauseTimer() }
+                        Button(NSLocalizedString("button.pause", comment: "")) { vm.pauseTimer() }
                             .buttonStyle(SecondaryButtonStyle())
                     } else {
-                        Button("继续") { vm.startTimer() }
+                        Button(NSLocalizedString("button.resume", comment: "")) { vm.startTimer() }
                             .buttonStyle(PrimaryButtonStyle())
                     }
 
-                    Button("跳过") { vm.skipPhase() }
+                    Button(NSLocalizedString("button.skip", comment: "")) { vm.skipPhase() }
                         .buttonStyle(SecondaryButtonStyle())
 
-                    if vm.timerState == .working {
-                        Button("重置") { vm.resetTimer() }
-                            .buttonStyle(SecondaryButtonStyle())
-                    }
+                    // 重置按钮 - 在工作和休息时都可用
+                    Button(NSLocalizedString("button.reset", comment: "")) { vm.resetTimer() }
+                        .buttonStyle(SecondaryButtonStyle())
                 }
             }
             .padding(.bottom)
 
-            VStack(spacing: 4) {
-                // 周期进度指示器
-                if vm.timerState != .stopped {
-                    HStack(spacing: 6) {
-                        ForEach(0..<vm.dailyGoal, id: \.self) { index in
-                            Circle()
-                                .fill(index < vm.pomodorosInCycle ? Color.black : Color.gray.opacity(0.3))
-                                .frame(width: 8, height: 8)
-                        }
-                    }
-                    .padding(.bottom, 4)
-                }
-
-                Text("累计完成: \(vm.completedPomodoros) 🍅")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-            .padding(.bottom, 10)
+            Text(String(format: NSLocalizedString("stats.total", comment: ""), vm.completedPomodoros))
+                .font(.caption).foregroundColor(.secondary)
+                .padding(.bottom, 10)
         }
         .frame(width: 320)
         .background(Color.white)
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView(showOnboarding: $showOnboarding)
+                .environmentObject(vm)
+        }
         .popover(isPresented: $showAchievements) {
             AchievementView()
         }
@@ -91,9 +115,9 @@ struct ContentView: View {
 
     var statusText: String {
         switch vm.timerState {
-        case .stopped: return "准备好了吗？"
-        case .working: return "专注于工作中..."
-        case .onBreak: return "休息一下吧！"
+        case .stopped: return NSLocalizedString("status.ready", comment: "")
+        case .working: return NSLocalizedString("status.working", comment: "")
+        case .onBreak: return NSLocalizedString("status.break", comment: "")
         }
     }
 }
@@ -131,17 +155,17 @@ struct AchievementView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("成就墙").font(.headline).padding(.top)
+            Text(NSLocalizedString("achievements.title", comment: "")).font(.headline).padding(.top)
 
             // 进度条 - 显示到下一个里程碑的进度
             if let nextMilestone = getNextMilestone() {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("距离 \(nextMilestone.displayName)")
+                        Text(String(format: NSLocalizedString("achievements.until", comment: ""), nextMilestone.displayName))
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text("\(vm.completedPomodoros)/\(nextMilestone.threshold)")
+                        Text(String(format: NSLocalizedString("achievements.progress", comment: ""), vm.completedPomodoros, nextMilestone.threshold))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

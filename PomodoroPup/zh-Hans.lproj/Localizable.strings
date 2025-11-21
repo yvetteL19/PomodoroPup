@@ -1,0 +1,72 @@
+/* ContentView */
+"status.ready" = "准备好了吗？";
+"status.working" = "专注中...";
+"status.break" = "休息中";
+"button.start" = "开始专注";
+"button.pause" = "暂停";
+"button.resume" = "继续";
+"button.skip" = "跳过";
+"button.reset" = "重置";
+"stats.total" = "总计 %d 个番茄";
+"goal.completed" = "今日目标达成！";
+"achievements.title" = "成就墙";
+"achievements.until" = "距离 %@";
+"achievements.progress" = "%d/%d";
+
+/* SettingsView */
+"settings.title" = "设置";
+"settings.time" = "时间设置";
+"settings.focus_duration" = "专注时长";
+"settings.break_duration" = "休息时长";
+"settings.cycles" = "番茄钟周期";
+"settings.minutes" = "分钟";
+"settings.rounds" = "轮";
+"settings.companion" = "陪伴模式";
+"settings.sound" = "音效";
+"settings.animations" = "动画效果";
+"settings.notifications" = "通知提醒";
+"settings.on" = "开启";
+"settings.off" = "关闭";
+"settings.statistics" = "统计";
+"settings.total_pomodoros" = "累计番茄";
+"settings.today" = "今日番茄";
+"settings.streak_days" = "连续出勤";
+"settings.streak_pomodoros" = "连续专注";
+"settings.total_break" = "累计休息";
+"settings.days" = "天";
+"settings.times" = "次";
+"settings.minutes_unit" = "分钟";
+"settings.done" = "完成";
+
+/* Achievements */
+"achievement.novice.name" = "萌新小狗";
+"achievement.novice.desc" = "累计完成 10 个番茄";
+"achievement.efficient.name" = "高效搭档";
+"achievement.efficient.desc" = "累计完成 50 个番茄";
+"achievement.master.name" = "专注大师";
+"achievement.master.desc" = "累计完成 200 个番茄";
+"achievement.habit.name" = "连续出勤";
+"achievement.habit.desc" = "连续 3 天每天至少完成 4 个番茄";
+"achievement.deepWork.name" = "深度黑客";
+"achievement.deepWork.desc" = "连续 3 个番茄未跳过";
+"achievement.partyKing.name" = "舞蹈之王";
+"achievement.partyKing.desc" = "休息时间累计 300 分钟";
+
+/* Onboarding */
+"onboarding.welcome.title" = "遇见你的专注伙伴！";
+"onboarding.welcome.subtitle" = "PomodoroPup 用番茄工作法帮助你保持专注。";
+"onboarding.goal.title" = "设置每日目标";
+"onboarding.goal.subtitle" = "你希望每天完成多少个番茄？";
+"onboarding.notification.title" = "保持专注节奏";
+"onboarding.notification.subtitle" = "在休息和工作时收到温柔的提醒。";
+"onboarding.next" = "下一步";
+"onboarding.enable" = "启用通知";
+"onboarding.skip" = "暂时跳过";
+
+/* Notifications */
+"notification.break_title" = "该休息啦！🎉";
+"notification.break_body" = "干得好！休息 5 分钟吧。";
+"notification.goal_title" = "今日目标达成！🏆";
+"notification.goal_body" = "你今天完成了 %d 个番茄！";
+"notification.continue_title" = "休息结束！💪";
+"notification.continue_body" = "开始第 %d 个番茄";

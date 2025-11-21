@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UserNotifications
 
 // 状态定义
 enum TimerState: String, Codable {
@@ -17,23 +18,23 @@ enum AchievementType: String, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .novice: return "萌新小狗"
-        case .efficient: return "高效搭档"
-        case .master: return "专注大师"
-        case .habit: return "连续出勤"
-        case .deepWork: return "深度黑客"
-        case .partyKing: return "舞蹈之王"
+        case .novice: return NSLocalizedString("achievement.novice.name", comment: "")
+        case .efficient: return NSLocalizedString("achievement.efficient.name", comment: "")
+        case .master: return NSLocalizedString("achievement.master.name", comment: "")
+        case .habit: return NSLocalizedString("achievement.habit.name", comment: "")
+        case .deepWork: return NSLocalizedString("achievement.deepWork.name", comment: "")
+        case .partyKing: return NSLocalizedString("achievement.partyKing.name", comment: "")
         }
     }
 
     var description: String {
         switch self {
-        case .novice: return "累计完成 10 个番茄"
-        case .efficient: return "累计完成 50 个番茄"
-        case .master: return "累计完成 200 个番茄"
-        case .habit: return "连续 3 天每天至少完成 4 个番茄"
-        case .deepWork: return "连续 3 个番茄未跳过"
-        case .partyKing: return "休息时间累计 300 分钟"
+        case .novice: return NSLocalizedString("achievement.novice.desc", comment: "")
+        case .efficient: return NSLocalizedString("achievement.efficient.desc", comment: "")
+        case .master: return NSLocalizedString("achievement.master.desc", comment: "")
+        case .habit: return NSLocalizedString("achievement.habit.desc", comment: "")
+        case .deepWork: return NSLocalizedString("achievement.deepWork.desc", comment: "")
+        case .partyKing: return NSLocalizedString("achievement.partyKing.desc", comment: "")
         }
     }
 
@@ -85,15 +86,19 @@ class DogViewModel: ObservableObject {
     // 设置项
     @Published var workDuration: TimeInterval = 25 * 60 {
         didSet {
+            // 验证工作时长在合理范围内 (1-120分钟)
+            workDuration = max(60, min(workDuration, 120 * 60))
             saveState()
-            // 如果当前是停止状态，同步更新显示时间
-            if timerState == .stopped {
+            // 如果当前是停止状态或工作状态但未运行，同步更新显示时间
+            if timerState == .stopped || (timerState == .working && !isTimerRunning) {
                 remainingTime = workDuration
             }
         }
     }
     @Published var breakDuration: TimeInterval = 5 * 60 {
         didSet {
+            // 验证休息时长在合理范围内 (1-60分钟)
+            breakDuration = max(60, min(breakDuration, 60 * 60))
             saveState()
             // 如果当前是休息状态且未运行，同步更新显示时间
             if timerState == .onBreak && !isTimerRunning {
@@ -102,7 +107,11 @@ class DogViewModel: ObservableObject {
         }
     }
     @Published var dailyGoal: Int = 4 {
-        didSet { saveState() }
+        didSet {
+            // 验证每日目标在合理范围内 (1-20个)
+            dailyGoal = max(1, min(dailyGoal, 20))
+            saveState()
+        }
     }
     @Published var soundEnabled: Bool = true {
         didSet { saveState() }
@@ -110,11 +119,11 @@ class DogViewModel: ObservableObject {
     @Published var animationEnabled: Bool = true {
         didSet { saveState() }
     }
+    @Published var notificationEnabled: Bool = true {
+        didSet { saveState() }
+    }
 
     // 动画触发
-    @Published var shouldTriggerJumpAnimation: Bool = false
-    @Published var shouldTriggerCollarAnimation: Bool = false
-    @Published var shouldTriggerSparkleAnimation: Bool = false
     @Published var shouldFlashMenuBar: Bool = false
 
     // 计时器运行状态
@@ -138,10 +147,17 @@ class DogViewModel: ObservableObject {
     private let kDailyGoal = "dailyGoal"
     private let kSoundEnabled = "soundEnabled"
     private let kAnimationEnabled = "animationEnabled"
+    private let kNotificationEnabled = "notificationEnabled"
 
     init() {
         loadState()
         checkDailyReset()
+
+        // App启动时，如果计时器没有在运行，重置到stopped状态
+        if !isTimerRunning {
+            timerState = .stopped
+            remainingTime = workDuration
+        }
     }
 
     // 格式化时间字符串
@@ -169,6 +185,7 @@ class DogViewModel: ObservableObject {
         defaults.set(dailyGoal, forKey: kDailyGoal)
         defaults.set(soundEnabled, forKey: kSoundEnabled)
         defaults.set(animationEnabled, forKey: kAnimationEnabled)
+        defaults.set(notificationEnabled, forKey: kNotificationEnabled)
     }
 
     private func loadState() {
@@ -179,28 +196,35 @@ class DogViewModel: ObservableObject {
             timerState = state
         }
 
-        completedPomodoros = defaults.integer(forKey: kCompletedPomodoros)
+        // 加载统计数据（确保非负值）
+        completedPomodoros = max(0, defaults.integer(forKey: kCompletedPomodoros))
 
         if let achievements = defaults.array(forKey: kUnlockedAchievements) as? [String] {
             unlockedAchievements = Set(achievements)
         }
 
-        consecutiveDays = defaults.integer(forKey: kConsecutiveDays)
-        currentStreakPomodoros = defaults.integer(forKey: kCurrentStreakPomodoros)
-        totalBreakTime = defaults.integer(forKey: kTotalBreakTime)
-        pomodorosInCycle = defaults.integer(forKey: kPomodorosInCycle)
-        todayPomodoros = defaults.integer(forKey: kTodayPomodoros)
+        consecutiveDays = max(0, defaults.integer(forKey: kConsecutiveDays))
+        currentStreakPomodoros = max(0, defaults.integer(forKey: kCurrentStreakPomodoros))
+        totalBreakTime = max(0, defaults.integer(forKey: kTotalBreakTime))
+        pomodorosInCycle = max(0, defaults.integer(forKey: kPomodorosInCycle))
+        todayPomodoros = max(0, defaults.integer(forKey: kTodayPomodoros))
         lastActiveDate = defaults.string(forKey: kLastActiveDate) ?? ""
 
-        // 设置项（带默认值）
+        // 设置项（带默认值和验证）
         let savedWorkDuration = defaults.double(forKey: kWorkDuration)
-        if savedWorkDuration > 0 { workDuration = savedWorkDuration }
+        if savedWorkDuration >= 60 && savedWorkDuration <= 120 * 60 {
+            workDuration = savedWorkDuration
+        }
 
         let savedBreakDuration = defaults.double(forKey: kBreakDuration)
-        if savedBreakDuration > 0 { breakDuration = savedBreakDuration }
+        if savedBreakDuration >= 60 && savedBreakDuration <= 60 * 60 {
+            breakDuration = savedBreakDuration
+        }
 
         let savedDailyGoal = defaults.integer(forKey: kDailyGoal)
-        if savedDailyGoal > 0 { dailyGoal = savedDailyGoal }
+        if savedDailyGoal >= 1 && savedDailyGoal <= 20 {
+            dailyGoal = savedDailyGoal
+        }
 
         if defaults.object(forKey: kSoundEnabled) != nil {
             soundEnabled = defaults.bool(forKey: kSoundEnabled)
@@ -208,6 +232,10 @@ class DogViewModel: ObservableObject {
 
         if defaults.object(forKey: kAnimationEnabled) != nil {
             animationEnabled = defaults.bool(forKey: kAnimationEnabled)
+        }
+
+        if defaults.object(forKey: kNotificationEnabled) != nil {
+            notificationEnabled = defaults.bool(forKey: kNotificationEnabled)
         }
 
         // 恢复剩余时间
@@ -239,6 +267,7 @@ class DogViewModel: ObservableObject {
             }
 
             todayPomodoros = 0
+            pomodorosInCycle = 0  // 新一天重置周期计数
             lastActiveDate = today
         }
     }
@@ -288,10 +317,6 @@ class DogViewModel: ObservableObject {
     }
 
     func skipPhase() {
-        // 跳过会重置连续番茄计数
-        if timerState == .working {
-            currentStreakPomodoros = 0
-        }
         completePhase(wasSkipped: true)
     }
 
@@ -321,12 +346,18 @@ class DogViewModel: ObservableObject {
     private func completePhase(wasSkipped: Bool) {
         if timerState == .working {
             // 工作结束 -> 休息
+            // 无论跳过与否，都计入周期
+            pomodorosInCycle += 1
+
             if !wasSkipped {
+                // 只有完成的才计入有效番茄数
                 completedPomodoros += 1
                 todayPomodoros += 1
                 currentStreakPomodoros += 1
-                pomodorosInCycle += 1
                 checkAchievements()
+            } else {
+                // 跳过会重置连续番茄计数
+                currentStreakPomodoros = 0
             }
 
             // 进入休息
@@ -338,34 +369,54 @@ class DogViewModel: ObservableObject {
                 SoundManager.shared.play(.bark)
             }
 
+            // 发送休息通知
+            sendNotification(
+                title: NSLocalizedString("notification.break_title", comment: ""),
+                body: NSLocalizedString("notification.break_body", comment: "")
+            )
+
             // 开始计时休息时长
             startBreakTimeTracking()
 
         } else {
-            // 休息结束 -> 工作（如果未达到每日目标）或停止
+            // 休息结束
             breakTimeTimer?.cancel()
             breakTimeTimer = nil
 
-            // 检查是否完成每日目标
+            // 检查是否完成番茄钟周期
             if pomodorosInCycle >= dailyGoal {
-                // 达到每日目标，停止
+                // 达到周期目标，停止计时器（但不重置计数，让用户看到完成状态）
                 timer?.cancel()
                 timer = nil
                 isTimerRunning = false
                 timerState = .stopped
                 remainingTime = workDuration
-                pomodorosInCycle = 0  // 重置周期
-                print("🎉 完成每日目标\(dailyGoal)个番茄！")
+                // 保留 pomodorosInCycle 的值，让进度指示器显示完成状态
+
+                // 发送目标完成通知
+                sendNotification(
+                    title: NSLocalizedString("notification.goal_title", comment: ""),
+                    body: String(format: NSLocalizedString("notification.goal_body", comment: ""), dailyGoal)
+                )
+
+                print("🎉 完成\(dailyGoal)轮番茄钟周期！")
             } else {
-                // 未达到目标，继续下一个番茄
+                // 未完成周期，自动进入下一个工作番茄
                 timerState = .working
                 remainingTime = workDuration
-                print("💪 继续第\(pomodorosInCycle + 1)个番茄")
+
+                // 发送继续工作通知
+                sendNotification(
+                    title: NSLocalizedString("notification.continue_title", comment: ""),
+                    body: String(format: NSLocalizedString("notification.continue_body", comment: ""), pomodorosInCycle + 1)
+                )
+
+                print("💪 开始第\(pomodorosInCycle + 1)个番茄")
             }
 
-            // 播放音效：吁~
+            // 播放音效：汪！
             if soundEnabled {
-                SoundManager.shared.play(.sigh)
+                SoundManager.shared.play(.bark)
             }
         }
     }
@@ -408,20 +459,54 @@ class DogViewModel: ObservableObject {
                 SoundManager.shared.play(.achievement)
             }
 
-            // 触发闪光动画
-            if animationEnabled {
-                shouldTriggerSparkleAnimation = true
-                shouldFlashMenuBar = true
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    self.shouldTriggerSparkleAnimation = false
-                    self.shouldFlashMenuBar = false
-                }
+            // 触发奖杯抖动动画
+            shouldFlashMenuBar = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.shouldFlashMenuBar = false
             }
         }
     }
 
     func debugUnlockAll() {
         AchievementType.allCases.forEach { unlock($0) }
+    }
+
+    // --- 通知功能 ---
+
+    func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                print("❌ 通知权限请求失败: \(error.localizedDescription)")
+            }
+            if granted {
+                print("✅ 通知权限已授予")
+            } else {
+                print("⚠️ 用户拒绝通知权限")
+            }
+        }
+    }
+
+    func sendNotification(title: String, body: String) {
+        // 检查用户是否在设置中启用了通知
+        guard notificationEnabled else {
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("❌ 通知发送失败: \(error.localizedDescription)")
+            }
+        }
     }
 }
