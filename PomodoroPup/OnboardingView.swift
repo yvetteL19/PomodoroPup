@@ -3,6 +3,8 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject var vm: DogViewModel
     @Binding var showOnboarding: Bool
+    @Environment(\.dismissWindow) var dismissWindow
+    var isWindow: Bool = false  // 是否作为独立窗口显示
     @State private var currentPage = 0
 
     var body: some View {
@@ -80,14 +82,12 @@ struct OnboardingView: View {
                 VStack(spacing: 12) {
                     Button(NSLocalizedString("onboarding.enable", comment: "")) {
                         vm.requestNotificationPermission()
-                        showOnboarding = false
-                        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+                        completeOnboarding()
                     }
                     .buttonStyle(PrimaryButtonStyle())
 
                     Button(NSLocalizedString("onboarding.skip", comment: "")) {
-                        showOnboarding = false
-                        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+                        completeOnboarding()
                     }
                     .foregroundColor(.secondary)
                 }
@@ -95,5 +95,15 @@ struct OnboardingView: View {
         }
         .frame(width: 320, height: 400)
         .padding()
+        .background(Color.white)
+    }
+
+    private func completeOnboarding() {
+        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+        if isWindow {
+            dismissWindow(id: "onboarding")
+        } else {
+            showOnboarding = false
+        }
     }
 }

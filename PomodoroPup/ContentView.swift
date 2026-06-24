@@ -2,10 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var vm: DogViewModel
+    @Environment(\.openWindow) var openWindow
     @State private var showAchievements = false
     @State private var showSettings = false
     @State private var trophyShake = false
-    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
 
     var body: some View {
         VStack(spacing: 16) {
@@ -18,13 +18,6 @@ struct ContentView: View {
                 Button(action: { showSettings.toggle() }) {
                     Image(systemName: "gearshape")
                 }.buttonStyle(.plain)
-
-                #if DEBUG
-                // 调试：一键解锁
-                Button(action: { vm.debugUnlockAll() }) {
-                    Image(systemName: "hammer.fill")
-                }.buttonStyle(.plain)
-                #endif
 
                 // 成就墙按钮
                 Button(action: { showAchievements.toggle() }) {
@@ -52,21 +45,11 @@ struct ContentView: View {
                 .font(.system(size: 48, weight: .bold, design: .monospaced))
 
             // 周期进度指示器
-            VStack(spacing: 6) {
-                HStack(spacing: 4) {
-                    ForEach(0..<vm.dailyGoal, id: \.self) { index in
-                        Circle()
-                            .fill(index < vm.pomodorosInCycle ? Color.black : Color.gray.opacity(0.2))
-                            .frame(width: 6, height: 6)
-                    }
-                }
-
-                // 目标完成提示
-                if vm.pomodorosInCycle >= vm.dailyGoal {
-                    Text("🎉 " + NSLocalizedString("goal.completed", comment: ""))
-                        .font(.caption)
-                        .foregroundColor(.green)
-                        .bold()
+            HStack(spacing: 4) {
+                ForEach(0..<vm.dailyGoal, id: \.self) { index in
+                    Circle()
+                        .fill(index < vm.pomodorosInCycle ? Color.black : Color.gray.opacity(0.2))
+                        .frame(width: 6, height: 6)
                 }
             }
             .padding(.top, 4)
@@ -101,9 +84,11 @@ struct ContentView: View {
         }
         .frame(width: 320)
         .background(Color.white)
-        .sheet(isPresented: $showOnboarding) {
-            OnboardingView(showOnboarding: $showOnboarding)
-                .environmentObject(vm)
+        .onAppear {
+            // 首次启动时打开独立的 Onboarding 窗口
+            if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+                openWindow(id: "onboarding")
+            }
         }
         .popover(isPresented: $showAchievements) {
             AchievementView()

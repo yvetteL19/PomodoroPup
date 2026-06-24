@@ -1,9 +1,11 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct PomodoroPupApp: App {
     // 初始化 ViewModel
     @StateObject var dogViewModel = DogViewModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
         // macOS 菜单栏应用核心配置
@@ -16,6 +18,15 @@ struct PomodoroPupApp: App {
             MenuBarLabel(vm: dogViewModel)
         }
         .menuBarExtraStyle(.window) // 下拉窗口样式
+
+        // 独立的 Onboarding 窗口
+        Window("Welcome", id: "onboarding") {
+            OnboardingView(showOnboarding: .constant(true), isWindow: true)
+                .environmentObject(dogViewModel)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
     }
 }
 
@@ -68,5 +79,22 @@ struct MenuBarLabel: View {
                 flashOpacity = 1.0
             }
         }
+    }
+}
+
+// AppDelegate - 处理前台通知显示
+class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    // 允许在前台显示通知
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // 即使 app 在前台也显示通知横幅和声音
+        completionHandler([.banner, .sound])
     }
 }

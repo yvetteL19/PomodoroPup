@@ -87,7 +87,11 @@ class DogViewModel: ObservableObject {
     @Published var workDuration: TimeInterval = 25 * 60 {
         didSet {
             // 验证工作时长在合理范围内 (1-120分钟)
-            workDuration = max(60, min(workDuration, 120 * 60))
+            let clamped = max(60, min(workDuration, 120 * 60))
+            if workDuration != clamped {
+                workDuration = clamped
+                return  // 避免重复执行
+            }
             saveState()
             // 如果当前是停止状态或工作状态但未运行，同步更新显示时间
             if timerState == .stopped || (timerState == .working && !isTimerRunning) {
@@ -98,7 +102,11 @@ class DogViewModel: ObservableObject {
     @Published var breakDuration: TimeInterval = 5 * 60 {
         didSet {
             // 验证休息时长在合理范围内 (1-60分钟)
-            breakDuration = max(60, min(breakDuration, 60 * 60))
+            let clamped = max(60, min(breakDuration, 60 * 60))
+            if breakDuration != clamped {
+                breakDuration = clamped
+                return  // 避免重复执行
+            }
             saveState()
             // 如果当前是休息状态且未运行，同步更新显示时间
             if timerState == .onBreak && !isTimerRunning {
@@ -109,7 +117,11 @@ class DogViewModel: ObservableObject {
     @Published var dailyGoal: Int = 4 {
         didSet {
             // 验证每日目标在合理范围内 (1-20个)
-            dailyGoal = max(1, min(dailyGoal, 20))
+            let clamped = max(1, min(dailyGoal, 20))
+            if dailyGoal != clamped {
+                dailyGoal = clamped
+                return  // 避免重复执行
+            }
             saveState()
         }
     }
@@ -366,7 +378,7 @@ class DogViewModel: ObservableObject {
 
             // 播放音效：汪！
             if soundEnabled {
-                SoundManager.shared.play(.bark)
+                SoundManager.shared.play(.ding)
             }
 
             // 发送休息通知
@@ -416,7 +428,7 @@ class DogViewModel: ObservableObject {
 
             // 播放音效：汪！
             if soundEnabled {
-                SoundManager.shared.play(.bark)
+                SoundManager.shared.play(.ding)
             }
         }
     }
