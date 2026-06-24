@@ -15,7 +15,9 @@ PomodoroPup 安静地待在你的菜单栏里。开始专注，一只小狗就�
 
 ## ⬇️ 下载安装
 
-预编译版本发布在 [**Releases**](https://github.com/yvetteL19/PomodoroPup/releases) 页面。由于没有苹果开发者账号签名，首次打开 App 时可能会提示"无法验证开发者"或"文件已损坏"。
+**[⬇️ 下载 PomodoroPup 1.0（.zip）](https://github.com/yvetteL19/PomodoroPup/releases/download/v1.0/PomodoroPup.1.0.zip)** —— 或浏览全部 [Releases](https://github.com/yvetteL19/PomodoroPup/releases)。
+
+由于没有苹果开发者账号签名，首次打开 App 时可能会提示"无法验证开发者"或"文件已损坏"。
 
 **解决方法：**
 1. 下载并解压后，**不要**直接双击打开。

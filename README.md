@@ -15,7 +15,9 @@ PomodoroPup lives quietly in your menu bar. Start a focus session and a little d
 
 ## ⬇️ Download
 
-Prebuilt builds are published under [**Releases**](https://github.com/yvetteL19/PomodoroPup/releases). Because the app is not signed with an Apple Developer certificate, macOS may warn that the developer "cannot be verified" or that the file is "damaged" on first launch.
+**[⬇️ Download PomodoroPup 1.0 (.zip)](https://github.com/yvetteL19/PomodoroPup/releases/download/v1.0/PomodoroPup.1.0.zip)** — or browse all [Releases](https://github.com/yvetteL19/PomodoroPup/releases).
+
+Because the app is not signed with an Apple Developer certificate, macOS may warn that the developer "cannot be verified" or that the file is "damaged" on first launch.
 
 **To open it:**
 1. Download and unzip — **don't** double-click the app directly.
