@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Combine
 import UserNotifications
 
@@ -50,475 +51,469 @@ enum AchievementType: String, CaseIterable {
     }
 }
 
-class DogViewModel: ObservableObject {
-    // UI 监听变量
-    @Published var timerState: TimerState = .stopped {
-        didSet { saveState() }
-    }
-    @Published var remainingTime: TimeInterval = 25 * 60
-    @Published var completedPomodoros: Int = 0 {
-        didSet { saveState() }
-    }
-    @Published var unlockedAchievements: Set<String> = [] {
-        didSet { saveState() }
-    }
+/// All mutations are driven by the main run loop. Tests supply a clock and disable
+/// subscriptions and effects, so they never touch the real app's preferences.
+final class DogViewModel: ObservableObject {
+    @Published private(set) var timerState: TimerState = .stopped
+    @Published private(set) var remainingTime: TimeInterval = 25 * 60
+    @Published private(set) var completedPomodoros = 0
+    @Published private(set) var unlockedAchievements: Set<String> = []
+    @Published private(set) var consecutiveDays = 0
+    @Published private(set) var currentStreakPomodoros = 0
+    @Published private(set) var totalBreakTime = 0
+    @Published private(set) var pomodorosInCycle = 0
+    @Published private(set) var todayPomodoros = 0
+    @Published private(set) var lastActiveDate = ""
+    @Published private(set) var isTimerRunning = false
+    @Published private(set) var restoredSession = false
+    @Published private(set) var storageError: String?
+    @Published var shouldFlashMenuBar = false
 
-    // 新增追踪变量
-    @Published var consecutiveDays: Int = 0 {
-        didSet { saveState() }
-    }
-    @Published var currentStreakPomodoros: Int = 0 {
-        didSet { saveState() }
-    }
-    @Published var totalBreakTime: Int = 0 {
-        didSet { saveState() }
-    }
-    @Published var pomodorosInCycle: Int = 0 {
-        didSet { saveState() }
-    }
-    @Published var todayPomodoros: Int = 0 {
-        didSet { saveState() }
-    }
-    @Published var lastActiveDate: String = "" {
-        didSet { saveState() }
-    }
-
-    // 设置项
     @Published var workDuration: TimeInterval = 25 * 60 {
         didSet {
-            // 验证工作时长在合理范围内 (1-120分钟)
-            let clamped = max(60, min(workDuration, 120 * 60))
-            if workDuration != clamped {
-                workDuration = clamped
-                return  // 避免重复执行
-            }
-            saveState()
-            // 如果当前是停止状态或工作状态但未运行，同步更新显示时间
-            if timerState == .stopped || (timerState == .working && !isTimerRunning) {
-                remainingTime = workDuration
-            }
+            let clamped = workDuration.isFinite ? min(7200, max(60, workDuration)) : 1500
+            if workDuration != clamped { workDuration = clamped; return }
+            settingsChanged()
         }
     }
     @Published var breakDuration: TimeInterval = 5 * 60 {
         didSet {
-            // 验证休息时长在合理范围内 (1-60分钟)
-            let clamped = max(60, min(breakDuration, 60 * 60))
-            if breakDuration != clamped {
-                breakDuration = clamped
-                return  // 避免重复执行
-            }
-            saveState()
-            // 如果当前是休息状态且未运行，同步更新显示时间
-            if timerState == .onBreak && !isTimerRunning {
-                remainingTime = breakDuration
-            }
+            let clamped = breakDuration.isFinite ? min(3600, max(60, breakDuration)) : 300
+            if breakDuration != clamped { breakDuration = clamped; return }
+            settingsChanged()
         }
     }
-    @Published var dailyGoal: Int = 4 {
+    @Published var dailyGoal = 4 {
         didSet {
-            // 验证每日目标在合理范围内 (1-20个)
-            let clamped = max(1, min(dailyGoal, 20))
-            if dailyGoal != clamped {
-                dailyGoal = clamped
-                return  // 避免重复执行
-            }
-            saveState()
+            let clamped = min(20, max(1, dailyGoal))
+            if dailyGoal != clamped { dailyGoal = clamped; return }
+            settingsChanged()
         }
     }
-    @Published var soundEnabled: Bool = true {
-        didSet { saveState() }
-    }
-    @Published var animationEnabled: Bool = true {
-        didSet { saveState() }
-    }
-    @Published var notificationEnabled: Bool = true {
-        didSet { saveState() }
-    }
+    @Published var soundEnabled = true { didSet { settingsChanged() } }
+    @Published var animationEnabled = true { didSet { settingsChanged() } }
+    @Published var notificationEnabled = true { didSet { settingsChanged() } }
 
-    // 动画触发
-    @Published var shouldFlashMenuBar: Bool = false
-
-    // 计时器运行状态
-    @Published var isTimerRunning: Bool = false
-
+    private let store: StateStore
+    private let clock: TimerClock
+    private var calendar: Calendar
+    private let automaticTicks: Bool
+    private let effectsEnabled: Bool
+    private var savedState = PersistedState()
+    private var phaseDuration: TimeInterval = 1500
+    private var breakSeconds: TimeInterval = 0
+    private var lastTickUptime: TimeInterval?
     private var timer: AnyCancellable?
-    private var breakTimeTimer: AnyCancellable?
+    private var lifecycleSubscriptions: [AnyCancellable] = []
+    private var loaded = false
+    private var updating = false
+    private var feedbackAllowed = false
+    private var feedback: [() -> Void] = []
 
-    // UserDefaults Keys
-    private let kTimerState = "timerState"
-    private let kCompletedPomodoros = "completedPomodoros"
-    private let kUnlockedAchievements = "unlockedAchievements"
-    private let kConsecutiveDays = "consecutiveDays"
-    private let kCurrentStreakPomodoros = "currentStreakPomodoros"
-    private let kTotalBreakTime = "totalBreakTime"
-    private let kPomodorosInCycle = "pomodorosInCycle"
-    private let kTodayPomodoros = "todayPomodoros"
-    private let kLastActiveDate = "lastActiveDate"
-    private let kWorkDuration = "workDuration"
-    private let kBreakDuration = "breakDuration"
-    private let kDailyGoal = "dailyGoal"
-    private let kSoundEnabled = "soundEnabled"
-    private let kAnimationEnabled = "animationEnabled"
-    private let kNotificationEnabled = "notificationEnabled"
+    init(
+        store: StateStore = StateStore(),
+        clock: TimerClock = SystemTimerClock(),
+        calendar: Calendar = .current,
+        automaticTicks: Bool = true,
+        effectsEnabled: Bool = true
+    ) {
+        self.store = store
+        self.clock = clock
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        self.calendar = gregorian
+        self.automaticTicks = automaticTicks
+        self.effectsEnabled = effectsEnabled
 
-    init() {
-        loadState()
-        checkDailyReset()
-
-        // App启动时，如果计时器没有在运行，重置到stopped状态
-        if !isTimerRunning {
-            timerState = .stopped
-            remainingTime = workDuration
-        }
-    }
-
-    // 格式化时间字符串
-    var timeString: String {
-        let minutes = Int(remainingTime) / 60
-        let seconds = Int(remainingTime) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-
-    // --- 持久化 ---
-
-    private func saveState() {
-        let defaults = UserDefaults.standard
-        defaults.set(timerState.rawValue, forKey: kTimerState)
-        defaults.set(completedPomodoros, forKey: kCompletedPomodoros)
-        defaults.set(Array(unlockedAchievements), forKey: kUnlockedAchievements)
-        defaults.set(consecutiveDays, forKey: kConsecutiveDays)
-        defaults.set(currentStreakPomodoros, forKey: kCurrentStreakPomodoros)
-        defaults.set(totalBreakTime, forKey: kTotalBreakTime)
-        defaults.set(pomodorosInCycle, forKey: kPomodorosInCycle)
-        defaults.set(todayPomodoros, forKey: kTodayPomodoros)
-        defaults.set(lastActiveDate, forKey: kLastActiveDate)
-        defaults.set(workDuration, forKey: kWorkDuration)
-        defaults.set(breakDuration, forKey: kBreakDuration)
-        defaults.set(dailyGoal, forKey: kDailyGoal)
-        defaults.set(soundEnabled, forKey: kSoundEnabled)
-        defaults.set(animationEnabled, forKey: kAnimationEnabled)
-        defaults.set(notificationEnabled, forKey: kNotificationEnabled)
-    }
-
-    private func loadState() {
-        let defaults = UserDefaults.standard
-
-        if let stateRaw = defaults.string(forKey: kTimerState),
-           let state = TimerState(rawValue: stateRaw) {
-            timerState = state
-        }
-
-        // 加载统计数据（确保非负值）
-        completedPomodoros = max(0, defaults.integer(forKey: kCompletedPomodoros))
-
-        if let achievements = defaults.array(forKey: kUnlockedAchievements) as? [String] {
-            unlockedAchievements = Set(achievements)
-        }
-
-        consecutiveDays = max(0, defaults.integer(forKey: kConsecutiveDays))
-        currentStreakPomodoros = max(0, defaults.integer(forKey: kCurrentStreakPomodoros))
-        totalBreakTime = max(0, defaults.integer(forKey: kTotalBreakTime))
-        pomodorosInCycle = max(0, defaults.integer(forKey: kPomodorosInCycle))
-        todayPomodoros = max(0, defaults.integer(forKey: kTodayPomodoros))
-        lastActiveDate = defaults.string(forKey: kLastActiveDate) ?? ""
-
-        // 设置项（带默认值和验证）
-        let savedWorkDuration = defaults.double(forKey: kWorkDuration)
-        if savedWorkDuration >= 60 && savedWorkDuration <= 120 * 60 {
-            workDuration = savedWorkDuration
-        }
-
-        let savedBreakDuration = defaults.double(forKey: kBreakDuration)
-        if savedBreakDuration >= 60 && savedBreakDuration <= 60 * 60 {
-            breakDuration = savedBreakDuration
-        }
-
-        let savedDailyGoal = defaults.integer(forKey: kDailyGoal)
-        if savedDailyGoal >= 1 && savedDailyGoal <= 20 {
-            dailyGoal = savedDailyGoal
-        }
-
-        if defaults.object(forKey: kSoundEnabled) != nil {
-            soundEnabled = defaults.bool(forKey: kSoundEnabled)
-        }
-
-        if defaults.object(forKey: kAnimationEnabled) != nil {
-            animationEnabled = defaults.bool(forKey: kAnimationEnabled)
-        }
-
-        if defaults.object(forKey: kNotificationEnabled) != nil {
-            notificationEnabled = defaults.bool(forKey: kNotificationEnabled)
-        }
-
-        // 恢复剩余时间
-        remainingTime = workDuration
-    }
-
-    // 检查日期重置
-    private func checkDailyReset() {
-        let today = getTodayString()
-
-        if lastActiveDate.isEmpty {
-            // 首次启动
-            lastActiveDate = today
-            return
-        }
-
-        if lastActiveDate != today {
-            // 新的一天
-            if todayPomodoros >= 4 {
-                // 昨天达成目标
-                if isConsecutiveDay(from: lastActiveDate, to: today) {
-                    consecutiveDays += 1
-                } else {
-                    consecutiveDays = 0
-                }
-            } else {
-                // 昨天未达成
-                consecutiveDays = 0
+        do {
+            // Load into a value first. No property observer may save during hydration.
+            let state = try store.load(now: clock.now, calendar: gregorian)
+            savedState = state
+            if let zone = TimeZone(identifier: state.timeZoneIdentifier) {
+                self.calendar.timeZone = zone
             }
-
-            todayPomodoros = 0
-            pomodorosInCycle = 0  // 新一天重置周期计数
-            lastActiveDate = today
+            completedPomodoros = state.completedPomodoros
+            unlockedAchievements = state.unlockedAchievements
+            currentStreakPomodoros = state.currentStreakPomodoros
+            breakSeconds = state.totalBreakTime
+            totalBreakTime = Int(breakSeconds)
+            pomodorosInCycle = state.pomodorosInCycle
+            workDuration = state.workDuration
+            breakDuration = state.breakDuration
+            dailyGoal = state.dailyGoal
+            soundEnabled = state.soundEnabled
+            animationEnabled = state.animationEnabled
+            notificationEnabled = state.notificationEnabled
+            if let session = state.timer {
+                timerState = session.phase
+                phaseDuration = session.phaseDuration
+                remainingTime = session.remainingTime
+                restoredSession = true
+                // Always require an explicit resume. Time while the app was absent
+                // must never turn into completed work or accumulated rest.
+            } else {
+                remainingTime = workDuration
+                phaseDuration = workDuration
+            }
+            loaded = true
+            update(emitFeedback: false) {}
+        } catch {
+            failSafely()
         }
+        if automaticTicks { observeLifecycle() }
     }
 
-    private func getTodayString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+    var timeString: String {
+        let seconds = max(0, Int(ceil(remainingTime)))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
-
-    private func isConsecutiveDay(from: String, to: String) -> Bool {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let fromDate = formatter.date(from: from),
-              let toDate = formatter.date(from: to) else {
-            return false
-        }
-        let days = Calendar.current.dateComponents([.day], from: fromDate, to: toDate).day ?? 0
-        return days == 1
-    }
-
-    // --- 核心控制 ---
 
     func startTimer() {
-        if timerState == .stopped {
-            timerState = .working
-            remainingTime = workDuration
-        }
-        if timer == nil {
-            timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-                .sink { [weak self] _ in self?.tick() }
+        guard !isTimerRunning else { return }
+        update {
+            if timerState == .stopped {
+                pomodorosInCycle = 0
+                timerState = .working
+                phaseDuration = workDuration
+                remainingTime = phaseDuration
+            }
+            restoredSession = false
             isTimerRunning = true
+            lastTickUptime = clock.uptime
+            // A zero checkpoint can occur after an interrupted write at a boundary.
+            if remainingTime <= 0 { finishPhase(wasSkipped: false, at: clock.now) }
         }
-
-        // 如果是休息状态，开始计时休息时长
-        if timerState == .onBreak {
-            startBreakTimeTracking()
-        }
+        startHeartbeatIfNeeded()
     }
 
     func pauseTimer() {
-        timer?.cancel()
-        timer = nil
-        breakTimeTimer?.cancel()
-        breakTimeTimer = nil
-        isTimerRunning = false
+        update {
+            _ = consumeElapsedTime()
+            stopRunning()
+            restoredSession = false
+        }
     }
 
     func skipPhase() {
-        completePhase(wasSkipped: true)
+        guard timerState != .stopped else { return }
+        update {
+            // If the old phase expired before this click, do not also skip the new one.
+            if !consumeElapsedTime() {
+                finishPhase(wasSkipped: true, at: clock.now)
+            }
+            restoredSession = false
+        }
     }
 
     func resetTimer() {
-        pauseTimer()
-        timerState = .stopped
-        remainingTime = workDuration
-        isTimerRunning = false
-    }
-
-    private func tick() {
-        if remainingTime > 0 {
-            remainingTime -= 1
-        } else {
-            completePhase(wasSkipped: false)
+        update {
+            _ = consumeElapsedTime()
+            stopRunning()
+            timerState = .stopped
+            phaseDuration = workDuration
+            remainingTime = workDuration
+            pomodorosInCycle = 0
+            currentStreakPomodoros = 0
+            restoredSession = false
         }
     }
 
-    private func startBreakTimeTracking() {
-        breakTimeTimer?.cancel()
-        breakTimeTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-            .sink { [weak self] _ in
-                self?.totalBreakTime += 1
-            }
+    /// Public to the module for deterministic tests, UI activation and day changes.
+    func refresh() {
+        update { _ = consumeElapsedTime() }
     }
 
-    private func completePhase(wasSkipped: Bool) {
+    func handleSleep() {
+        update(emitFeedback: false) {
+            _ = consumeElapsedTime()
+            stopRunning()
+            restoredSession = timerState != .stopped
+        }
+    }
+
+    func handleWake() {
+        // Also handles a missed sleep notification conservatively: never award the gap.
+        update(emitFeedback: false) {
+            stopRunning()
+            restoredSession = timerState != .stopped
+        }
+    }
+
+    func prepareForTermination() {
+        handleSleep()
+    }
+
+    private func settingsChanged() {
+        guard loaded, !updating else { return }
+        update {
+            _ = consumeElapsedTime()
+            if timerState == .stopped {
+                remainingTime = workDuration
+                phaseDuration = workDuration
+            }
+            // Active and paused phases retain their own duration snapshot.
+        }
+    }
+
+    private func update(emitFeedback: Bool = true, _ operation: () -> Void) {
+        guard loaded, !updating, storageError == nil else { return }
+        updating = true
+        feedbackAllowed = emitFeedback && effectsEnabled
+        feedback.removeAll()
+        operation()
+        refreshDailyStatistics()
+        checkAchievements()
+        updating = false
+        feedbackAllowed = false
+        if persist() {
+            let committedFeedback = feedback
+            feedback.removeAll()
+            committedFeedback.forEach { $0() }
+        } else {
+            feedback.removeAll()
+        }
+    }
+
+    /// UI ticks are only refresh requests. Elapsed time comes from a monotonic clock,
+    /// so a late callback or a wall-clock adjustment cannot change session length.
+    @discardableResult
+    private func consumeElapsedTime() -> Bool {
+        guard isTimerRunning, let previous = lastTickUptime else { return false }
+        let nowUptime = clock.uptime
+        let elapsed = max(0, nowUptime - previous)
+        lastTickUptime = nowUptime
+        let credited = min(elapsed, remainingTime)
+        if timerState == .onBreak {
+            breakSeconds += credited
+            totalBreakTime = Int(breakSeconds)
+        }
+        remainingTime = max(0, remainingTime - credited)
+        guard remainingTime <= 0 else { return false }
+
+        // Attribute a delayed completion to its actual boundary, including midnight.
+        let completedAt = clock.now.addingTimeInterval(-(elapsed - credited))
+        finishPhase(wasSkipped: false, at: completedAt)
+        // At most one phase completes per observation. We never invent unattended
+        // subsequent phases during a long run-loop stall.
+        return true
+    }
+
+    private func finishPhase(wasSkipped: Bool, at date: Date) {
+        guard timerState != .stopped else { return }
         if timerState == .working {
-            // 工作结束 -> 休息
-            // 无论跳过与否，都计入周期
-            pomodorosInCycle += 1
-
-            if !wasSkipped {
-                // 只有完成的才计入有效番茄数
-                completedPomodoros += 1
-                todayPomodoros += 1
-                currentStreakPomodoros += 1
-                checkAchievements()
-            } else {
-                // 跳过会重置连续番茄计数
+            if wasSkipped {
                 currentStreakPomodoros = 0
-            }
-
-            // 进入休息
-            timerState = .onBreak
-            remainingTime = breakDuration
-
-            // 播放音效：汪！
-            if soundEnabled {
-                SoundManager.shared.play(.ding)
-            }
-
-            // 发送休息通知
-            sendNotification(
-                title: NSLocalizedString("notification.break_title", comment: ""),
-                body: NSLocalizedString("notification.break_body", comment: "")
-            )
-
-            // 开始计时休息时长
-            startBreakTimeTracking()
-
-        } else {
-            // 休息结束
-            breakTimeTimer?.cancel()
-            breakTimeTimer = nil
-
-            // 检查是否完成番茄钟周期
-            if pomodorosInCycle >= dailyGoal {
-                // 达到周期目标，停止计时器（但不重置计数，让用户看到完成状态）
-                timer?.cancel()
-                timer = nil
-                isTimerRunning = false
-                timerState = .stopped
-                remainingTime = workDuration
-                // 保留 pomodorosInCycle 的值，让进度指示器显示完成状态
-
-                // 发送目标完成通知
-                sendNotification(
-                    title: NSLocalizedString("notification.goal_title", comment: ""),
-                    body: String(format: NSLocalizedString("notification.goal_body", comment: ""), dailyGoal)
-                )
-
-                print("🎉 完成\(dailyGoal)轮番茄钟周期！")
             } else {
-                // 未完成周期，自动进入下一个工作番茄
-                timerState = .working
-                remainingTime = workDuration
-
-                // 发送继续工作通知
-                sendNotification(
-                    title: NSLocalizedString("notification.continue_title", comment: ""),
-                    body: String(format: NSLocalizedString("notification.continue_body", comment: ""), pomodorosInCycle + 1)
-                )
-
-                print("💪 开始第\(pomodorosInCycle + 1)个番茄")
+                completedPomodoros += 1
+                pomodorosInCycle += 1
+                currentStreakPomodoros += 1
+                savedState.dailyCounts[dayKey(date), default: 0] += 1
             }
-
-            // 播放音效：汪！
-            if soundEnabled {
-                SoundManager.shared.play(.ding)
+            timerState = .onBreak
+            phaseDuration = breakDuration
+            remainingTime = phaseDuration
+            if !wasSkipped {
+                queueNotification(
+                    title: NSLocalizedString("notification.break_title", comment: ""),
+                    body: String(format: NSLocalizedString("notification.break_body", comment: ""), Int(breakDuration / 60))
+                )
+            }
+        } else {
+            if pomodorosInCycle >= dailyGoal {
+                stopRunning()
+                timerState = .stopped
+                phaseDuration = workDuration
+                remainingTime = workDuration
+                let today = dayKey(clock.now)
+                let completedToday = savedState.dailyCounts[today, default: 0]
+                if completedToday >= dailyGoal, savedState.lastGoalNotificationDay != today {
+                    savedState.lastGoalNotificationDay = today
+                    queueNotification(
+                        title: NSLocalizedString("notification.goal_title", comment: ""),
+                        body: String(format: NSLocalizedString("notification.goal_body", comment: ""), completedToday)
+                    )
+                }
+            } else {
+                timerState = .working
+                phaseDuration = workDuration
+                remainingTime = phaseDuration
+                if !wasSkipped {
+                    queueNotification(
+                        title: NSLocalizedString("notification.continue_title", comment: ""),
+                        body: String(format: NSLocalizedString("notification.continue_body", comment: ""), savedState.dailyCounts[dayKey(clock.now), default: 0] + 1)
+                    )
+                }
             }
         }
+        // Preserve a paused state across skip; never start a second rest timer.
+        lastTickUptime = isTimerRunning ? clock.uptime : nil
+        if !wasSkipped, soundEnabled, feedbackAllowed {
+            feedback.append { SoundManager.shared.play(.ding) }
+        }
+    }
+
+    private func stopRunning() {
+        isTimerRunning = false
+        lastTickUptime = nil
+        timer?.cancel()
+        timer = nil
+    }
+
+    private func startHeartbeatIfNeeded() {
+        guard automaticTicks, isTimerRunning, timer == nil else { return }
+        timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in self?.refresh() }
+    }
+
+    private func refreshDailyStatistics() {
+        let today = calendar.startOfDay(for: clock.now)
+        lastActiveDate = dayKey(today)
+        todayPomodoros = savedState.dailyCounts[lastActiveDate, default: 0]
+        var day = today
+        if todayPomodoros < 4 {
+            day = calendar.date(byAdding: .day, value: -1, to: day)!
+        }
+        var streak = 0
+        while true {
+            let key = dayKey(day)
+            if key == savedState.legacyStreakEndDay {
+                streak += savedState.legacyStreakCount
+                break
+            }
+            guard savedState.dailyCounts[key, default: 0] >= 4 else { break }
+            streak += 1
+            day = calendar.date(byAdding: .day, value: -1, to: day)!
+        }
+        consecutiveDays = streak
+    }
+
+    private func dayKey(_ date: Date) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
     }
 
     private func checkAchievements() {
-        // 里程碑成就
-        if completedPomodoros >= AchievementType.novice.threshold {
-            unlock(.novice)
-        }
-        if completedPomodoros >= AchievementType.efficient.threshold {
-            unlock(.efficient)
-        }
-        if completedPomodoros >= AchievementType.master.threshold {
-            unlock(.master)
-        }
-
-        // 连续出勤
-        checkDailyReset()
-        if consecutiveDays >= AchievementType.habit.threshold {
-            unlock(.habit)
-        }
-
-        // 深度黑客
-        if currentStreakPomodoros >= AchievementType.deepWork.threshold {
-            unlock(.deepWork)
-        }
-
-        // 舞蹈之王
-        if totalBreakTime >= AchievementType.partyKing.threshold {
-            unlock(.partyKing)
-        }
+        let earned: [(AchievementType, Bool)] = [
+            (.novice, completedPomodoros >= AchievementType.novice.threshold),
+            (.efficient, completedPomodoros >= AchievementType.efficient.threshold),
+            (.master, completedPomodoros >= AchievementType.master.threshold),
+            (.habit, consecutiveDays >= AchievementType.habit.threshold),
+            (.deepWork, currentStreakPomodoros >= AchievementType.deepWork.threshold),
+            (.partyKing, totalBreakTime >= AchievementType.partyKing.threshold)
+        ]
+        for (achievement, isEarned) in earned where isEarned { unlock(achievement) }
     }
 
     private func unlock(_ type: AchievementType) {
-        if !unlockedAchievements.contains(type.rawValue) {
-            unlockedAchievements.insert(type.rawValue)
-
-            // 播放音效：成就解锁
-            if soundEnabled {
-                SoundManager.shared.play(.achievement)
-            }
-
-            // 触发奖杯抖动动画
-            shouldFlashMenuBar = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.shouldFlashMenuBar = false
+        guard unlockedAchievements.insert(type.rawValue).inserted, feedbackAllowed else { return }
+        if soundEnabled { feedback.append { SoundManager.shared.play(.achievement) } }
+        if animationEnabled {
+            feedback.append { [weak self] in
+                self?.shouldFlashMenuBar = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    self?.shouldFlashMenuBar = false
+                }
             }
         }
     }
 
+    #if DEBUG
     func debugUnlockAll() {
-        AchievementType.allCases.forEach { unlock($0) }
+        update { AchievementType.allCases.forEach { unlock($0) } }
+    }
+    #endif
+
+    private func snapshot() -> PersistedState {
+        var state = savedState
+        state.completedPomodoros = completedPomodoros
+        state.unlockedAchievements = unlockedAchievements
+        state.currentStreakPomodoros = currentStreakPomodoros
+        state.totalBreakTime = breakSeconds
+        state.pomodorosInCycle = pomodorosInCycle
+        state.workDuration = workDuration
+        state.breakDuration = breakDuration
+        state.dailyGoal = dailyGoal
+        state.soundEnabled = soundEnabled
+        state.animationEnabled = animationEnabled
+        state.notificationEnabled = notificationEnabled
+        state.timer = timerState == .stopped ? nil : PersistedTimer(
+            phase: timerState,
+            remainingTime: remainingTime,
+            phaseDuration: phaseDuration,
+            wasRunning: isTimerRunning,
+            savedAt: clock.now
+        )
+        return state
     }
 
-    // --- 通知功能 ---
+    @discardableResult
+    private func persist() -> Bool {
+        let state = snapshot()
+        // No idle disk churn on popover/day-change refreshes.
+        guard state != savedState else { return true }
+        do {
+            try store.save(state)
+            savedState = state
+            return true
+        } catch {
+            failSafely()
+            return false
+        }
+    }
+
+    private func failSafely() {
+        stopRunning()
+        storageError = NSLocalizedString("storage.error", comment: "")
+    }
+
+    private func observeLifecycle() {
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)
+            .sink { [weak self] _ in self?.onMain { $0.handleSleep() } }
+            .store(in: &lifecycleSubscriptions)
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [weak self] _ in self?.onMain { $0.handleWake() } }
+            .store(in: &lifecycleSubscriptions)
+        NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak self] _ in self?.onMain { $0.prepareForTermination() } }
+            .store(in: &lifecycleSubscriptions)
+        NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refresh() }
+            .store(in: &lifecycleSubscriptions)
+    }
+
+    private func onMain(_ action: (DogViewModel) -> Void) {
+        // Finish the checkpoint before returning from sleep/termination notifications;
+        // scheduling it for the next run-loop turn could defer it until after sleep.
+        if Thread.isMainThread {
+            action(self)
+        } else {
+            DispatchQueue.main.sync { action(self) }
+        }
+    }
 
     func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            if let error = error {
-                print("❌ 通知权限请求失败: \(error.localizedDescription)")
-            }
-            if granted {
-                print("✅ 通知权限已授予")
-            } else {
-                print("⚠️ 用户拒绝通知权限")
-            }
+        guard effectsEnabled else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, error in
+            if let error { print("Notification authorization failed: \(error.localizedDescription)") }
         }
+    }
+
+    private func queueNotification(title: String, body: String) {
+        guard feedbackAllowed, notificationEnabled else { return }
+        feedback.append { [weak self] in self?.sendNotification(title: title, body: body) }
     }
 
     func sendNotification(title: String, body: String) {
-        // 检查用户是否在设置中启用了通知
-        guard notificationEnabled else {
-            return
-        }
-
+        guard effectsEnabled, notificationEnabled, storageError == nil else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("❌ 通知发送失败: \(error.localizedDescription)")
-            }
+        content.sound = soundEnabled ? .default : nil
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+            identifier: UUID().uuidString, content: content, trigger: nil
+        )) { error in
+            if let error { print("Notification delivery failed: \(error.localizedDescription)") }
         }
     }
 }

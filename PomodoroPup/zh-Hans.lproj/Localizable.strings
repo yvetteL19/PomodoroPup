@@ -2,12 +2,17 @@
 "status.ready" = "准备好了吗？";
 "status.working" = "专注中...";
 "status.break" = "休息中";
+"status.paused_working" = "专注已暂停";
+"status.paused_break" = "休息已暂停";
+"status.recovery" = "已保留上次计时，点击「继续」恢复。";
+"storage.error" = "暂时无法安全读取或保存数据。原有保存数据保持不变，请重启应用或从备份恢复。";
 "button.start" = "开始专注";
 "button.pause" = "暂停";
 "button.resume" = "继续";
 "button.skip" = "跳过";
 "button.reset" = "重置";
 "stats.total" = "总计 %d 个番茄";
+"stats.today_progress" = "今日已完成 %d 个番茄，目标 %d 个";
 "goal.completed" = "今日目标达成！";
 "achievements.title" = "成就墙";
 "achievements.until" = "距离 %@";
@@ -65,7 +70,7 @@
 
 /* Notifications */
 "notification.break_title" = "该休息啦！🎉";
-"notification.break_body" = "干得好！休息 5 分钟吧。";
+"notification.break_body" = "干得好！休息 %d 分钟吧。";
 "notification.goal_title" = "今日目标达成！🏆";
 "notification.goal_body" = "你今天完成了 %d 个番茄！";
 "notification.continue_title" = "休息结束！💪";

@@ -2,6 +2,8 @@
 
 评估日期：2026 年 10 月 22 日。代码基线：`be6e4b7`。
 
+本文记录重构前的评估，代码证据链接固定到当时版本。第一阶段已实施的行为与验证边界见 [可信度修复说明](reliability.md)。
+
 **建议继续做这个产品，并把方向收紧为：陪独自使用 Mac 的人更容易开始工作、完成一段专注、安心休息的小狗伙伴。** 当前版本已经有清楚的外形和基本计时闭环，适合进入修复与用户验证阶段；数据可靠性、陪伴成长和付费理由尚不足以支撑直接商业发布。
 
 下一版的顺序应当是：修复数据与计时 → 打磨第一次完整体验 → 兑现小狗成长 → 验证复用和付费。保留原生 SwiftUI、菜单栏入口、离线体验与现有插画，分阶段重构逻辑和体验。
@@ -34,7 +36,7 @@ PomodoroPup 是一个 macOS 15.5 及以上的原生菜单栏番茄钟。用户�
 
 ### 文档承诺需要与当前版本对齐
 
-- README 介绍“解锁装扮”，但 [DogView.swift](../PomodoroPup/DogView.swift#L9) 只按工作或休息选择素材，没有读取成就、选择或佩戴配饰。当前解锁结果体现在成就墙。
+- README 介绍“解锁装扮”，但 [DogView.swift](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogView.swift#L9) 只按工作或休息选择素材，没有读取成就、选择或佩戴配饰。当前解锁结果体现在成就墙。
 - CLAUDE.md 仍描述长休息、装扮叠加、跳跃、项圈调整与粒子效果；当前代码已简化，不能据此制定后续需求。Git 历史也明确记录过移除长休息的改动。
 - 截图属于仓库内的历史截图。例如成就图显示 0/10 却展示全部成就图标，当前代码对未解锁项显示锁。截图适合评估视觉方向，不代表当前所有运行状态。
 
@@ -65,16 +67,16 @@ P0 表示阻止商业发布；P1 表示下一次完整体验版本必须处理�
 
 | 优先级 | 已确认问题与证据 | 用户后果 | 修复后的验收条件 |
 | --- | --- | --- | --- |
-| P0 | 加载状态时，属性 didSet 调用全量 saveState，将尚未读出的值覆盖。[加载入口](../PomodoroPup/DogViewModel.swift#L203)、[写入](../PomodoroPup/DogViewModel.swift#L184) | 重启后累计记录、成就与偏好丢失；已在隔离数据中复现 | 已有记录、设置、成就在反复重启和升级迁移后保持一致；读取阶段不写存储 |
-| P0 | 每次 tick 减 1 秒，没有基于时间点校正；启动时总回到 stopped，没有保存剩余时间。[计时](../PomodoroPup/DogViewModel.swift#L342)、[初始化](../PomodoroPup/DogViewModel.swift#L164) | 定时回调延迟会造成偏差，退出或异常重启无法恢复；休眠策略缺失 | 暂停、重启、休眠、唤醒与系统时间变化有明确且通过测试的处理 |
-| P0 | 工作完成先递增今日数，再检查跨日并清零。[完成](../PomodoroPup/DogViewModel.swift#L364)、[跨日](../PomodoroPup/DogViewModel.swift#L258) | 新一天第一个完成记录会被清掉，也可能错误补足昨天目标；已复现 | 日期切换不丢记录；归属日和连续天数只从确定的记录规则计算 |
-| P0 | 跳过仍增加 pomodorosInCycle，达标由该计数决定，通知却说完成了今日番茄数。[跳过计数](../PomodoroPup/DogViewModel.swift#L358)、[达标](../PomodoroPup/DogViewModel.swift#L398) | 可以实际完成 0 个却收到达标通知；已复现 | 今日目标只读取有效完成数；跳过仅结束阶段，不贡献完成数 |
-| P0 | 暂停工作后点跳过，休息计时统计仍被启动，但主计时器保持暂停。[暂停](../PomodoroPup/DogViewModel.swift#L323)、[休息统计](../PomodoroPup/DogViewModel.swift#L390) | 界面时间不动，休息累计却增长；已复现 | 暂停时所有相关时长停止增长；只有一个可信时钟来源 |
+| P0 | 加载状态时，属性 didSet 调用全量 saveState，将尚未读出的值覆盖。[加载入口](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L203)、[写入](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L184) | 重启后累计记录、成就与偏好丢失；已在隔离数据中复现 | 已有记录、设置、成就在反复重启和升级迁移后保持一致；读取阶段不写存储 |
+| P0 | 每次 tick 减 1 秒，没有基于时间点校正；启动时总回到 stopped，没有保存剩余时间。[计时](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L342)、[初始化](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L164) | 定时回调延迟会造成偏差，退出或异常重启无法恢复；休眠策略缺失 | 暂停、重启、休眠、唤醒与系统时间变化有明确且通过测试的处理 |
+| P0 | 工作完成先递增今日数，再检查跨日并清零。[完成](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L364)、[跨日](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L258) | 新一天第一个完成记录会被清掉，也可能错误补足昨天目标；已复现 | 日期切换不丢记录；归属日和连续天数只从确定的记录规则计算 |
+| P0 | 跳过仍增加 pomodorosInCycle，达标由该计数决定，通知却说完成了今日番茄数。[跳过计数](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L358)、[达标](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L398) | 可以实际完成 0 个却收到达标通知；已复现 | 今日目标只读取有效完成数；跳过仅结束阶段，不贡献完成数 |
+| P0 | 暂停工作后点跳过，休息计时统计仍被启动，但主计时器保持暂停。[暂停](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L323)、[休息统计](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L390) | 界面时间不动，休息累计却增长；已复现 | 暂停时所有相关时长停止增长；只有一个可信时钟来源 |
 | P1 | dailyGoal 同时表示每日目标和一批自动循环的长度，完成后再开始不重置周期 | 再开一批只完成一轮就停止；已复现 | 每日目标、周期进度、自动衔接设置分别建模；目标达成后仍可正常继续 |
-| P1 | 暂停时 timerState 不变，文案仍显示专注中，小狗仍可能呼吸。[状态文案](../PomodoroPup/ContentView.swift#L101)、[动画](../PomodoroPup/DogView.swift#L29) | 无法一眼确认是否真的暂停 | 菜单栏、面板、动画和按钮一致表达暂停 |
-| P1 | 通知开关未映射系统授权；拒绝后只打印日志；通知音无条件使用默认声。[权限](../PomodoroPup/DogViewModel.swift#L488)、[通知](../PomodoroPup/DogViewModel.swift#L501) | 显示“开启”却收不到，关闭音效仍可能听到系统通知声 | 展示真实授权状态；静音行为统一；提供系统设置入口和一次测试提醒 |
-| P1 | 新手引导的显式触发在首次展开菜单栏面板时；应用没有自定义的可见退出入口。[入口](../PomodoroPup/ContentView.swift#L87)、[App 场景](../PomodoroPup/PomodoroPupApp.swift#L10) | 首次安装后的发现与操作缺少明确引导；实际首次窗口行为还需安装流程实测 | 干净安装后明确展示如何找到应用、开始和退出 |
-| P1 | 成就关闭动画后仍会闪菜单栏、抖奖杯；主界面硬编码白底，成就描述 9 pt、两行裁切。[主界面](../PomodoroPup/ContentView.swift#L27)、[成就](../PomodoroPup/ContentView.swift#L194) | 动效偏好不被完整尊重，深色与阅读体验存在风险 | 深浅模式、减少动态效果、键盘和 VoiceOver 逐项验收 |
+| P1 | 暂停时 timerState 不变，文案仍显示专注中，小狗仍可能呼吸。[状态文案](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/ContentView.swift#L101)、[动画](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogView.swift#L29) | 无法一眼确认是否真的暂停 | 菜单栏、面板、动画和按钮一致表达暂停 |
+| P1 | 通知开关未映射系统授权；拒绝后只打印日志；通知音无条件使用默认声。[权限](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L488)、[通知](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/DogViewModel.swift#L501) | 显示“开启”却收不到，关闭音效仍可能听到系统通知声 | 展示真实授权状态；静音行为统一；提供系统设置入口和一次测试提醒 |
+| P1 | 新手引导的显式触发在首次展开菜单栏面板时；应用没有自定义的可见退出入口。[入口](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/ContentView.swift#L87)、[App 场景](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/PomodoroPupApp.swift#L10) | 首次安装后的发现与操作缺少明确引导；实际首次窗口行为还需安装流程实测 | 干净安装后明确展示如何找到应用、开始和退出 |
+| P1 | 成就关闭动画后仍会闪菜单栏、抖奖杯；主界面硬编码白底，成就描述 9 pt、两行裁切。[主界面](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/ContentView.swift#L27)、[成就](https://github.com/yvetteL19/PomodoroPup/blob/be6e4b7ddddf977d3d8983c4950efe355e7c042e/PomodoroPup/ContentView.swift#L194) | 动效偏好不被完整尊重，深色与阅读体验存在风险 | 深浅模式、减少动态效果、键盘和 VoiceOver 逐项验收 |
 
 补充问题：休息通知写死“5 分钟”；修改暂停状态下的时长会直接重置剩余时间；60 次 tick 后停在 00:00，第 61 次才完成；连续三天达标的解锁检查滞后；休息成就只在下一次专注完成时检查。这些应随同一次状态与统计重构处理。
 
