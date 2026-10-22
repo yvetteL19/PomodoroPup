@@ -2,12 +2,17 @@
 "status.ready" = "Ready to focus?";
 "status.working" = "Focusing...";
 "status.break" = "On break";
+"status.paused_working" = "Focus paused";
+"status.paused_break" = "Break paused";
+"status.recovery" = "Your previous timer has been restored. Select Resume to continue.";
+"storage.error" = "Your data could not be loaded or saved safely. Previously saved data has been left unchanged. Restart the app or restore from a backup.";
 "button.start" = "Start";
 "button.pause" = "Pause";
 "button.resume" = "Resume";
 "button.skip" = "Skip";
 "button.reset" = "Reset";
 "stats.total" = "Total: %d pomodoros";
+"stats.today_progress" = "Today: %d of %d pomodoros completed";
 "goal.completed" = "Goal completed!";
 "achievements.title" = "Achievements";
 "achievements.until" = "Until %@";
@@ -65,7 +70,7 @@
 
 /* Notifications */
 "notification.break_title" = "Time for a break! 🎉";
-"notification.break_body" = "Great work! Take a 5-minute rest.";
+"notification.break_body" = "Great work! Take a %d-minute rest.";
 "notification.goal_title" = "Goal completed! 🏆";
 "notification.goal_body" = "You've finished %d pomodoros today!";
 "notification.continue_title" = "Break's over! 💪";

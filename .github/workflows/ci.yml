@@ -1,0 +1,36 @@
+name: macOS checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Test timer and persistence
+        run: swift test
+      - name: Build debug app without signing
+        run: >-
+          xcodebuild -project PomodoroPup.xcodeproj
+          -scheme PomodoroPup -configuration Debug
+          -destination 'generic/platform=macOS'
+          -derivedDataPath '${{ runner.temp }}/PomodoroPup-Debug'
+          CODE_SIGNING_ALLOWED=NO build
+      - name: Build release app without signing
+        run: >-
+          xcodebuild -project PomodoroPup.xcodeproj
+          -scheme PomodoroPup -configuration Release
+          -destination 'generic/platform=macOS'
+          -derivedDataPath '${{ runner.temp }}/PomodoroPup-Release'
+          CODE_SIGNING_ALLOWED=NO build

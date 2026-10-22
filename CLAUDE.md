@@ -1,163 +1,96 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file describes the current implementation for agents working in this repository. Treat the source and tests as authoritative when behavior changes.
 
-## Project Overview
+## Project and commands
 
-PomodoroPup is a macOS menu bar Pomodoro timer app with a gamified dog companion. The app is written in SwiftUI and features an achievement system where the dog earns cosmetic items as the user completes focus sessions.
+PomodoroPup is an offline, sandboxed macOS menu bar Pomodoro timer written in SwiftUI. A dog switches between work and rest poses, and an achievement wall displays earned badges. The current dog view does not wear achievement items.
 
-## Building and Running
+The repository root contains `PomodoroPup.xcodeproj`, `Package.swift`, `PomodoroPup/`, and `Tests/`. Use macOS 15.5+ and Xcode 16.4+.
 
-**Build/Run:**
 ```bash
-open /Users/yiwei/Desktop/PomodoroPup/PomodoroPup.xcodeproj
-```
-Then use Xcode's standard build (⌘B) and run (⌘R) commands.
-
-**Project location:** The Xcode project file is in the parent directory (`../PomodoroPup.xcodeproj`), while source code is in `PomodoroPup/`.
-
-## Architecture
-
-### App Structure
-
-The app follows MVVM architecture with a MenuBarExtra presentation:
-
-- **PomodoroPupApp.swift**: Entry point. Configures the menu bar extra with:
-  - MenuBarLabel: Dynamic status icon (stopped/working/break) + countdown timer with flash effect on achievement unlock
-  - Content: ContentView popup window
-  - Global `@StateObject` DogViewModel shared via `@EnvironmentObject`
-
-- **DogViewModel.swift**: Core business logic
-  - Timer management (Combine-based timer)
-  - State machine: `.stopped` → `.working` → (`.shortBreak` or `.longBreak`) → `.stopped`
-  - Long break triggers every N pomodoros (default 4, configurable)
-  - Achievement tracking and unlock logic with daily reset
-  - Sound effect triggers (with toggle)
-  - UserDefaults persistence for all state and stats
-  - Break time tracking with separate timer
-
-- **ContentView.swift**: Main UI popup
-  - Dog display, timer, and controls
-  - Settings button (gear icon) and achievement wall button (trophy)
-  - Reset button (appears during work state)
-  - Achievement wall popover (AchievementView) with progress bar
-  - Settings popover (SettingsView)
-  - Debug unlock button for testing
-
-- **DogView.swift**: Animated dog character
-  - Shows "dog_dance" during breaks (dancing animation with rotation and offset)
-  - Shows "dog_focus" during work/stopped (breathing animation when working)
-  - Transition animations:
-    - Jump animation (work→break): Quick scale-up effect
-    - Collar adjustment animation (break→work): Down-press gesture
-  - SparkleEffect: Yellow particles burst on achievement unlock
-  - Overlays achievement cosmetics (glasses, crown, bone, bulb, party crown) on the focus dog
-
-- **SettingsView.swift**: Configuration panel
-  - Time settings: Work duration, short/long break durations, long break interval
-  - Companion mode: Sound and animation toggles
-  - Statistics display: Total/today pomodoros, consecutive days, streak, total break time
-
-- **SoundManager.swift**: Audio playback singleton
-  - Plays MP3/WAV files: `bark.mp3` (work complete), `sigh.mp3` (break complete), `achievement.mp3` (unlock)
-  - Respects soundEnabled setting
-
-### State Flow
-
-```
-Stopped (25:00) → [Start] → Working (25:00 countdown) → [Complete] →
-  ↓
-  ├─ Short Break (5:00) [if pomodorosInCycle < 4] → [Complete] → Stopped
-  └─ Long Break (15:00) [if pomodorosInCycle >= 4] → [Complete] → Stopped (cycle resets)
+open PomodoroPup.xcodeproj
+swift test
+xcodebuild -project PomodoroPup.xcodeproj -scheme PomodoroPup \
+  -configuration Debug -destination 'generic/platform=macOS' \
+  -derivedDataPath /tmp/PomodoroPup-Debug CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project PomodoroPup.xcodeproj -scheme PomodoroPup \
+  -configuration Release -destination 'generic/platform=macOS' \
+  -derivedDataPath /tmp/PomodoroPup-Release CODE_SIGNING_ALLOWED=NO build
 ```
 
-Each work completion:
-- Increments `completedPomodoros`, `todayPomodoros`, `currentStreakPomodoros`, `pomodorosInCycle`
-- Triggers achievement checks
-- Plays bark sound and triggers jump animation
-- Starts break time tracking timer
+These unsigned builds validate compilation; they do not create a signed or notarized release. The [CI workflow](.github/workflows/ci.yml) runs model/storage tests and both configurations. The existing downloadable 1.0 archive is a historical release, not a rebuild of the current source.
 
-Each break completion:
-- Stops break time tracking
-- Plays sigh sound and triggers collar adjustment animation
-- Returns to stopped state
+## File responsibilities
 
-Skip during work:
-- Resets `currentStreakPomodoros` to 0 (breaks deep work achievement)
+| File | Responsibility |
+| --- | --- |
+| `PomodoroPup/PomodoroPupApp.swift` | Shared `DogViewModel`, `MenuBarExtra`, onboarding window, menu-bar phase/pause display and achievement flash, foreground notification delegate. |
+| `PomodoroPup/DogViewModel.swift` | Phase transitions, elapsed-time settlement, daily and batch counts, achievements, lifecycle handling, snapshots, and feedback after successful persistence. |
+| `PomodoroPup/TimerClock.swift` | `TimerClock` protocol and `SystemTimerClock`; wall time assigns dates, monotonic uptime measures running phases. |
+| `PomodoroPup/StateStore.swift` | Codable state/timer values, strict snapshot validation, one-time legacy backup and migration. |
+| `PomodoroPup/ContentView.swift` | Popup, today’s completed-work dots, controls, recovery/storage-error feedback, achievement wall and settings popovers. |
+| `PomodoroPup/DogView.swift` | Work image with optional breathing animation; rest GIF or static image. Pausing, the animation setting, and Reduce Motion control animation. |
+| `PomodoroPup/SettingsView.swift` | Focus duration, break duration, target count, effects toggles and current statistics. |
+| `PomodoroPup/OnboardingView.swift` | Three-page introduction; target selection and optional notification authorization. |
+| `PomodoroPup/SoundManager.swift` | System `Glass` sound for phase transitions; bundled achievement audio. |
+| `Tests/PomodoroPupCoreTests/` | Production-model tests using an injected clock and isolated preferences; direct storage migration and validation tests. |
 
-### Achievement System
+## Timer and product rules
 
-Achievements are defined in `AchievementType` enum with thresholds:
-- `icon_bone` (萌新小狗): 10 pomodoros
-- `icon_glasses` (高效搭档): 50 pomodoros
-- `icon_crown` (专注大师): 200 pomodoros
-- `icon_paw` (连续出勤): 3 consecutive days with 4+ pomodoros/day
-- `icon_bulb` (深度黑客): 3 consecutive uninterrupted pomodoros (no skips)
-- `icon_party` (舞蹈之王): 300 minutes of break time
+`TimerState` has exactly three cases: `.stopped`, `.working`, `.onBreak`. Pause is represented by an active phase with `isTimerRunning == false`. There are no separate short/long-break phases, configurable long breaks, or separate break-tracking timer.
 
-**Daily Reset Logic:**
-- On launch, `checkDailyReset()` compares `lastActiveDate` with today
-- If yesterday had 4+ pomodoros and dates are consecutive → increment `consecutiveDays`
-- Otherwise → reset `consecutiveDays` to 0
-- `todayPomodoros` resets to 0 each day
+- Starting from `.stopped` clears the batch count and begins a work phase. Resuming retains the same phase duration and remaining time.
+- Completed work increments lifetime completions, `dailyCounts[completionDay]`, the consecutive-work count, and the batch count. Skipped work increments none of these and clears the consecutive-work count.
+- Work transitions to rest. Rest transitions to work unless the batch has completed `dailyGoal` work sessions, in which case it stops.
+- `dailyGoal` currently serves both as the daily target and the batch length; these are not separate settings. UI dots show `todayPomodoros`, not `pomodorosInCycle`.
+- Skipping a paused phase leaves the next phase paused. Reset clears the unfinished phase, batch, and consecutive-work count while retaining completed statistics and achievements.
+- Actions first settle elapsed time. A click after a phase deadline completes that old phase; Skip does not then also skip the newly entered phase.
+- Changing durations affects future phases. An active or paused phase retains `phaseDuration` and `remainingTime`.
+- Combine’s one-second timer requests a refresh. `TimerClock.uptime` determines elapsed time; callback count is not the clock. A refresh settles at most one phase and does not invent later completed phases during a long delay.
+- Rest uses the same elapsed-time path, retaining fractional seconds in the snapshot. The published statistic displays whole seconds.
 
-**Achievement Unlocking:**
-- Triggers sparkle animation (SparkleEffect), menu bar flash (3 times), and achievement sound
-- Stored in `unlockedAchievements` Set, persisted to UserDefaults
-- Displayed as cosmetic overlays on dog (during work/stopped) and in achievement wall grid
+All model mutations run on the main run loop. Model tests normally set `automaticTicks: false`; observer integration tests may enable it and post synthetic lifecycle notifications without sleeping the Mac. Tests always isolate preferences and disable effects. Preserve that isolation when adding coverage.
 
-### Asset Structure
+## Persistence and recovery
 
-All assets are in `Assets.xcassets/`:
-- Dog images: `dog_focus`, `dog_dance`
-- Achievement icons: `icon_bone`, `icon_glasses`, `icon_crown`, `icon_bulb`, `icon_paw`, `icon_party`, `icon_stopped`, `icon_break`
-- Audio: `bark.MP3`, `sigh.MP3`, `achievement.MP3` (in project root, not in xcassets)
+`PersistedState` is a versioned JSON snapshot under `PomodoroPup.state.v1`. It contains settings, achievements, daily completion counts, batch/consecutive counters, historical streak metadata, and an optional active timer checkpoint. It is not a full session ledger: there are no individual session records, task labels, or duration history.
 
-Custom icons use `.renderingMode(.template)` for automatic dark/light mode adaptation.
+`StateStore` reads the snapshot into a value before the model assigns observable properties. Do not reintroduce full-state writes from statistic `didSet` observers during loading. `settingsChanged()` is guarded while loading; normal changes use `update` and then persist once. Feedback is emitted only after persistence succeeds.
 
-## Key Implementation Details
+When no current snapshot exists, legacy values are copied once to `PomodoroPup.legacyBackup.v1`, then converted. Legacy keys remain unchanged, including `hasCompletedOnboarding`, which onboarding still uses. Unknown achievement IDs survive migration. Legacy batch progress is reset because it included skips; lifetime and dated completed-work counts are preserved. The old format did not save remaining time, so it cannot supply a recovered timer.
 
-### Menu Bar Icon Logic
-The menu bar label dynamically switches between three states:
-- Stopped: `icon_stopped` (custom)
-- Working: `pawprint.fill` (SF Symbol)
-- Break: `icon_break` (custom)
+Malformed, unsupported-version, or invalid-range current snapshots must throw and remain untouched. The model stops, shows a storage error, disables timer actions/settings, and does not replace the data with defaults. Preserve the backup and original values when investigating; do not use destructive defaults-reset commands as a normal repair step.
 
-All custom icons must be set to template rendering mode to adapt to macOS appearance.
+Running phases are checkpointed on the nominal one-second refresh and on actions. Restart always restores an active checkpoint paused, even if `wasRunning` is true. Sleep settles the active fragment and pauses; wake remains paused. Normal termination requests the same pause/checkpoint path. Offline/sleep time is never retrospectively awarded. A crash may lose time since the last successfully persisted checkpoint; no exact one-second durability guarantee is made.
 
-### Timer Implementation
-Uses Combine's `Timer.publish()` in DogViewModel, not SwiftUI's `onReceive`. The timer:
-- Decrements `remainingTime` every second
-- Calls `completePhase()` at zero
-- Can be paused/resumed via `pauseTimer()`/`startTimer()`
+## Calendar and achievements
 
-### Localization
-UI text is in Chinese (开始专注, 暂停, 跳过, etc.). Achievement names and descriptions are also in Chinese.
+The model uses a Gregorian calendar and the time zone saved at initial storage creation or migration. Later changes to the system time zone do not reassign old days. A delayed completion is assigned to the phase’s computed completion boundary, not simply the refresh callback’s day. Refreshing on popup activation and calendar-day changes updates today’s display without clearing batch or lifetime progress.
 
-## Data Persistence
+Daily streaks require at least four completed sessions per day, independently of the configured target. During migration, old `consecutiveDays` is kept as `legacyStreakCount`, ending on the day before old `lastActiveDate`; old `todayPomodoros` belongs to `lastActiveDate`. Missing/invalid dates remain available in the raw backup rather than being invented as today’s work.
 
-All user data is persisted to UserDefaults:
-- Timer state and pomodoro counts
-- Unlocked achievements set
-- Tracking variables: consecutiveDays, currentStreakPomodoros, totalBreakTime, pomodorosInCycle
-- Today's pomodoro count and last active date
-- User settings: durations, intervals, sound/animation toggles
+| Achievement ID | Condition |
+| --- | --- |
+| `icon_bone` | 10 lifetime completed sessions |
+| `icon_glasses` | 50 lifetime completed sessions |
+| `icon_crown` | 200 lifetime completed sessions |
+| `icon_paw` | Three consecutive days with at least four completions each |
+| `icon_bulb` | Three consecutive completed sessions without skipping work or resetting |
+| `icon_party` | 300 minutes of accumulated running rest |
 
-Data is saved automatically via `didSet` observers on `@Published` properties.
+Achievements are reevaluated after model updates, including rest refreshes. The set prevents duplicate unlocks. Recovery/load reevaluation is silent. `debugUnlockAll()` exists only in Debug builds; there is no debug-unlock button in the current UI.
 
-## Testing Notes
+## Notifications, assets and localization
 
-- **Debug unlock**: The hammer icon button in ContentView calls `vm.debugUnlockAll()` to unlock all achievements for UI testing
-- **Settings defaults**: Work 25min, short break 5min, long break 15min, interval 4 pomodoros
-- No unit tests are currently implemented
+Natural phase transitions can play the system `Glass` sound and send an immediate local notification. The rest message uses the configured rest duration. Goal notification checks actual completed work and is limited by `lastGoalNotificationDay`; skipped work alone cannot trigger it. Notification content has no sound when `soundEnabled` is false. OS authorization and system settings still determine actual delivery.
 
-## Animation Details
+Notification permission is requested by onboarding. The current settings toggle does not display OS authorization status or provide a system-settings shortcut; do not describe that as implemented.
 
-All animations respect the `animationEnabled` setting:
+Assets actually used by `DogView` are `dog_work`, `dog_rest` (GIF data asset), and `dog_rest_static`. Badge assets are displayed in the achievement wall. The bundle also contains `achievement.MP3`, `bark.MP3`, and `sigh.MP3`; current phase transitions use the system sound rather than the latter two files. There are no sparkle, jump, collar-adjustment, or cosmetic-overlay effects in the current view.
 
-1. **Breathing animation** (work state): dog_focus scales between 0.98-1.02 with 2s easing
-2. **Dancing animation** (break state): dog_dance oscillates horizontally ±8px with ±3° rotation, 0.35s duration
-3. **Jump animation** (work→break): Scale to 1.15 in 0.1s, applied to dog_dance
-4. **Collar adjustment** (break→work): Vertical offset -8px for 0.15s on dog_focus and all cosmetics
-5. **Sparkle effect** (achievement unlock): 8 yellow circles radiate outward with fading opacity over 1.5s
-6. **Menu bar flash** (achievement unlock): Opacity toggles between 1.0-0.3 six times (3 full flashes) at 0.15s intervals
+User-facing strings are in `PomodoroPup/en.lproj/Localizable.strings` and `PomodoroPup/zh-Hans.lproj/Localizable.strings`; update both when adding UI text. Animated dog, trophy and menu-bar feedback respect the animation setting and Reduce Motion.
+
+## Verification boundary
+
+Use [docs/reliability.md](docs/reliability.md) for data contracts, commands, and the manual validation checklist. Automated tests must use a unique `UserDefaults` suite and disable real notifications/audio. They exercise model lifecycle methods, not actual Mac sleep, native notification delivery, accessibility rendering, or release signing. Do not claim those manual checks have passed without performing them in an isolated test environment.

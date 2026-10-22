@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var vm: DogViewModel
     @Environment(\.openWindow) var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAchievements = false
     @State private var showSettings = false
     @State private var trophyShake = false
@@ -18,6 +19,7 @@ struct ContentView: View {
                 Button(action: { showSettings.toggle() }) {
                     Image(systemName: "gearshape")
                 }.buttonStyle(.plain)
+                .disabled(vm.storageError != nil)
 
                 // 成就墙按钮
                 Button(action: { showAchievements.toggle() }) {
@@ -25,13 +27,17 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .rotationEffect(.degrees(trophyShake ? -10 : 0))
-                .animation(.default.repeatCount(6, autoreverses: true).speed(6), value: trophyShake)
-                .onChange(of: vm.shouldFlashMenuBar) { _, shouldFlash in
-                    if shouldFlash {
-                        trophyShake = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            trophyShake = false
-                        }
+                .animation(animationsAllowed ? .easeInOut(duration: 0.08) : nil, value: trophyShake)
+                .task(id: shouldAnimateAchievement) {
+                    trophyShake = false
+                    guard shouldAnimateAchievement else { return }
+                    defer { trophyShake = false }
+                    for _ in 0..<6 {
+                        guard !Task.isCancelled else { return }
+                        trophyShake.toggle()
+                        do {
+                            try await Task.sleep(for: .milliseconds(80))
+                        } catch { return }
                     }
                 }
             }
@@ -44,15 +50,31 @@ struct ContentView: View {
             Text(vm.timeString)
                 .font(.system(size: 48, weight: .bold, design: .monospaced))
 
-            // 周期进度指示器
+            if let storageError = vm.storageError {
+                Text(storageError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            } else if vm.restoredSession && vm.timerState != .stopped && !vm.isTimerRunning {
+                Text(NSLocalizedString("status.recovery", comment: ""))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
+            // 今日有效完成数，不包含跳过的阶段。
             HStack(spacing: 4) {
                 ForEach(0..<vm.dailyGoal, id: \.self) { index in
                     Circle()
-                        .fill(index < vm.pomodorosInCycle ? Color.black : Color.gray.opacity(0.2))
+                        .fill(index < vm.todayPomodoros ? Color.black : Color.gray.opacity(0.2))
                         .frame(width: 6, height: 6)
                 }
             }
             .padding(.top, 4)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(format: NSLocalizedString("stats.today_progress", comment: ""), vm.todayPomodoros, vm.dailyGoal))
 
             // 按钮区
             HStack(spacing: 12) {
@@ -76,6 +98,7 @@ struct ContentView: View {
                         .buttonStyle(SecondaryButtonStyle())
                 }
             }
+            .disabled(vm.storageError != nil)
             .padding(.bottom)
 
             Text(String(format: NSLocalizedString("stats.total", comment: ""), vm.completedPomodoros))
@@ -85,20 +108,41 @@ struct ContentView: View {
         .frame(width: 320)
         .background(Color.white)
         .onAppear {
+            vm.refresh()
             // 首次启动时打开独立的 Onboarding 窗口
-            if !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            if vm.storageError == nil && !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
                 openWindow(id: "onboarding")
             }
+        }
+        .onChange(of: vm.storageError) { _, error in
+            if error != nil { showSettings = false }
         }
         .popover(isPresented: $showAchievements) {
             AchievementView()
         }
         .popover(isPresented: $showSettings) {
             SettingsView()
+                .disabled(vm.storageError != nil)
         }
     }
 
+    private var animationsAllowed: Bool {
+        vm.animationEnabled && !reduceMotion
+    }
+
+    private var shouldAnimateAchievement: Bool {
+        animationsAllowed && vm.shouldFlashMenuBar
+    }
+
     var statusText: String {
+        if !vm.isTimerRunning {
+            if vm.timerState == .working {
+                return NSLocalizedString("status.paused_working", comment: "")
+            }
+            if vm.timerState == .onBreak {
+                return NSLocalizedString("status.paused_break", comment: "")
+            }
+        }
         switch vm.timerState {
         case .stopped: return NSLocalizedString("status.ready", comment: "")
         case .working: return NSLocalizedString("status.working", comment: "")
