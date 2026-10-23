@@ -1,6 +1,6 @@
 # Reliability and data preservation
 
-This document describes the first reliability implementation in the current source. It covers timer behavior, local data migration, recovery and validation. It does not describe a newly published release or a complete history of individual focus sessions.
+This document describes the reliability contracts in the current source, including the second-stage waiting behavior. It covers timer behavior, local data migration, recovery and validation. It does not describe a newly published release or a complete history of individual focus sessions.
 
 ## What is stored
 
@@ -8,8 +8,8 @@ This document describes the first reliability implementation in the current sour
 
 - Lifetime completed-work count, achievement IDs, consecutive-work count and accumulated rest seconds, including fractions.
 - Current batch progress, dated completion totals in `dailyCounts`, historical daily-streak metadata and the last day with a goal notification.
-- Focus/rest durations, target count, sound/animation/notification preferences and a fixed reporting time zone.
-- An optional current timer checkpoint: phase, remaining time, phase duration, whether it was running when saved, and save time.
+- Focus/rest durations, daily target count, sound/animation/notification preferences, optional automatic-next-focus setting and a fixed reporting time zone.
+- An optional current timer checkpoint: phase, remaining time, phase duration, whether it was running when saved, and save time; an optional waiting flag distinguishes an unstarted next focus.
 
 This is **daily completion counts plus an active timer checkpoint**. It does not retain individual session IDs, individual start/end times, pause events, tasks or a per-session duration history. Lifetime totals from earlier versions cannot be expanded into missing historical sessions.
 
@@ -46,9 +46,9 @@ The backup preserves the data available at migration time. If an earlier version
 
 ## Invalid data and safe stopping
 
-The current snapshot is decoded strictly. Malformed JSON, an unexpected stored type, missing required fields, unsupported `schemaVersion`, and invalid numeric/date/timer values produce an error. No empty fallback snapshot replaces them. Saving also checks an existing snapshot before allowing a replacement, so a failed load cannot be followed by an accidental default-state overwrite.
+The current snapshot is decoded strictly. The optional v1 additions `autoStartNextSession` and `isWaitingForNextSession` default to false when absent; all original required fields remain required. Malformed JSON, an unexpected stored type, missing required fields, unsupported `schemaVersion`, and invalid numeric/date/timer values produce an error. No empty fallback snapshot replaces them. Saving also checks an existing snapshot before allowing a replacement, so a failed load cannot be followed by an accidental default-state overwrite.
 
-Validation includes finite, nonnegative rest time; nonnegative counts; valid calendar keys and time zone; supported settings ranges; and a working/resting timer whose remaining time is within its phase duration. Numeric upper bounds reserve arithmetic headroom and prevent conversion/overflow crashes; they are technical safeguards, not a user-facing productivity limit. A stopped state has no active timer checkpoint.
+Validation includes finite, nonnegative rest time; nonnegative counts; valid calendar keys and time zone; supported settings ranges; and a working/resting timer whose remaining time is within its phase duration. Numeric upper bounds reserve arithmetic headroom and prevent conversion/overflow crashes; they are technical safeguards, not a user-facing productivity limit. A stopped state has no active timer checkpoint. A waiting state requires a full-duration, non-running work checkpoint matching the configured work duration.
 
 On a read or save failure, [DogViewModel.swift](../PomodoroPup/DogViewModel.swift) stops the timer, exposes a storage error and suppresses normal success feedback. The UI disables timer actions and settings. The saved snapshot, migration backup and original legacy keys stay in place. A save failure can leave the visible in-memory state newer than the last saved state; the error is a stop condition, not evidence that the latest action was persisted.
 
@@ -60,13 +60,13 @@ Investigation should preserve copies of the original data and use an isolated pr
 
 A refresh can complete **at most one phase**. If a 25-minute work phase is observed late, it is credited once and the rest phase begins with its full duration. The extra delay does not create a series of unattended work/rest completions. The completion is attributed to the computed end boundary, including a boundary before midnight even if the callback arrives after midnight.
 
-Only completed work advances total, daily and batch progress. A skip changes phase without awarding work; paused skips remain paused. Reset clears the current batch and consecutive-work count but retains completed work. Actions first settle a phase that has already reached its deadline, preventing a late Skip click from skipping two phases.
+Only completed work advances total, daily and batch progress. A skip changes phase without awarding work. Skipping paused work leaves rest paused; ending paused rest waits for an explicit next start. Reset clears the current batch and consecutive-work count but retains completed work. Actions first settle a phase that has already reached its deadline, preventing a late Skip click from skipping two phases. Pause and Reset settle that boundary silently: earned work, achievements and the daily-goal marker still persist, but transition sounds and notifications do not announce a phase that the action just stopped.
 
-An active phase retains its own duration snapshot when settings change. Starting from the ready state begins a new batch. The main-view dots show today’s completed work, so they are not reset by a new batch. The same configured target currently controls daily goal and batch length; separate settings are outside this stage.
+A running or paused phase retains its own duration snapshot when settings change; an unstarted waiting focus adopts the new work duration. Starting from the ready state begins a new batch. The main-view progress show today’s completed work, so they are not reset by a new batch. The daily target only provides progress feedback; it no longer stops a batch. Rest finishes into a waiting state by default. Optional automation only starts a new focus after a naturally finished running break; manually ending rest always waits.
 
 During a running phase, refreshes checkpoint the current state at a nominal one-second cadence. Actions also checkpoint. On normal termination the model settles the active fragment and pauses before saving. A crash or interruption can lose the fragment since the last successfully persisted checkpoint; delayed callbacks and `UserDefaults` persistence mean this is not a strict one-second durability guarantee.
 
-On restart, a valid active checkpoint always restores **paused**, even if `wasRunning` was true. The user must select Resume. `savedAt` is not used to award offline work or rest. Sleep handling settles the current fragment and pauses; wake remains paused and does not add the sleeping interval. If a wake arrives without a preceding sleep callback, the model conservatively stops without awarding the gap. These lifecycle rules have automated model coverage; actual system sleep delivery remains a manual check below.
+On restart, a valid active checkpoint restores **paused**, even if `wasRunning` was true. A waiting checkpoint stays waiting; it does not become a newly running or partially completed session. An interrupted phase requires Resume; an unstarted waiting phase requires Start next session (or Focus again after the daily goal). `savedAt` is not used to award offline work or rest. Sleep handling settles the current fragment and pauses; wake remains paused and does not add the sleeping interval. If a wake arrives without a preceding sleep callback, the model conservatively stops without awarding the gap. These lifecycle rules have automated model coverage; actual system sleep delivery remains a manual check below.
 
 ## Daily totals and legacy streaks
 
@@ -84,9 +84,9 @@ Use macOS with Xcode 16.4+ selected as the active developer tools. From the repo
 swift test
 ```
 
-[Package.swift](../Package.swift) exposes the production model, store, clock and sound manager to the test target. Tests use unique `UserDefaults` suites; model tests inject a clock and suppress audio/notifications. Most disable automatic subscriptions; observer integration tests may enable them and post synthetic lifecycle notifications without sleeping the Mac. They do not launch the real menu bar app or modify its preferences.
+[Package.swift](../Package.swift) exposes the production model, store, clock, notification service and sound manager to the test target. Tests use unique `UserDefaults` suites; model tests inject a clock and suppress audio/notifications. Most disable automatic subscriptions; observer integration tests may enable them and post synthetic lifecycle notifications without sleeping the Mac. They do not launch the real menu bar app or modify its preferences.
 
-Coverage includes persistence migration and round trips, invalid/unsupported snapshots, paused recovery, skips, resets, delayed callbacks, zero-time completion, midnight attribution, clock adjustments, daily streaks, batch restart, duration changes, and simulated sleep/wake methods.
+Coverage includes persistence migration and round trips, invalid/unsupported snapshots, paused recovery, skips, resets, delayed callbacks, zero-time completion, midnight attribution, clock adjustments, daily streaks, continued work after a daily target, duration changes, waiting recovery, opt-in automation, old-v1 compatibility, fake notification authorization/delivery, and simulated sleep/wake methods.
 
 Build both application configurations without signing:
 
@@ -103,13 +103,13 @@ xcodebuild -project PomodoroPup.xcodeproj -scheme PomodoroPup \
 
 ## Manual checks not yet performed
 
-The following are release-validation tasks, **not completed checks** for this implementation. Use an isolated test environment so real user data is not changed.
+The following matrix still needs full release validation. Partial native results, including first launch, settings and a normal-quit checkpoint, are documented in [the 2026-10-23 acceptance record](native-acceptance-2026-10-23.md); those results do not certify the entire matrix. Use an isolated test environment so real user data is not changed.
 
 - **Actual Mac sleep and wake:** test active work, active rest and an already paused phase; close the lid or sleep the system, wake later, and confirm paused state, stable totals and explicit Resume. Repeat near a phase deadline.
 - **Normal quit and unexpected termination:** restart an isolated build during both work and rest; inspect restored phase, duration, remaining time and unchanged offline statistics. Distinguish the last saved checkpoint from the exact instant of a forced stop.
 - **Native notification delivery:** test authorized, denied and not-yet-requested permission; app foreground/background; OS Focus mode; actual completion, rest transition and daily target. Check dynamic rest duration and confirm no success alert from pure skips.
 - **Sound behavior:** with app sound disabled and notifications enabled, verify actual native notification and app audio are silent; with sound enabled, check that phase and achievement sounds do not create an excessive combined alert.
-- **Permission recovery:** onboarding Skip and system denial still need a usable manual recovery path; the settings toggle currently does not expose OS permission status or a system-settings shortcut.
-- **Calendar events and UI:** keep the isolated app open across midnight while idle, working and resting; check today’s dots and settings counts. Verify behavior after a system time-zone change against the stored reporting zone.
+- **Permission recovery:** verify the new real-status display, authorization action, System Settings shortcut and test reminder with actual macOS permission changes. Denial must not block starting focus; return to the app must refresh the displayed permission.
+- **Calendar events and UI:** keep the isolated app open across midnight while idle, working and resting; check today’s progress and settings counts. Verify behavior after a system time-zone change against the stored reporting zone.
 - **Accessibility and visuals:** verify VoiceOver’s pause/status/progress labels, Reduce Motion, animation toggle, paused static dog, text clipping, and light/dark appearance. Source-level labels and animation guards do not replace visual inspection.
 - **Distribution:** validate signing, notarization, Gatekeeper behavior and installation/update behavior on a clean Mac before publishing a new archive. Existing download links still point to the original 1.0 release.

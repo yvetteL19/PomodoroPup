@@ -27,21 +27,17 @@ Because the app is not signed with an Apple Developer certificate, macOS may war
 
 (Or go to **System Settings → Privacy & Security → Open Anyway**.)
 
-The download above is the existing 1.0 release. The reliability changes described below apply to the current source; this work has not published a replacement archive. To use the current source, see [Build & Run](#-build--run).
+The download above is the existing 1.0 release. The reliability and experience changes described below apply to the current source; this work has not published a replacement archive. To use the current source, see [Build & Run](#-build--run).
 
 ---
 
-## 📸 Screenshots
+## 📸 Interface previews
 
-These screenshots show the earlier interface; the current source also distinguishes paused and recovered timers and displays storage errors.
+These are native SwiftUI renders of the current source using isolated sample preferences and a fake notification service. They show layout, not proof of real notification delivery. The 1.0 download still has the earlier interface.
 
-| Ready to focus | Focusing | On break |
+| First start | Dark appearance | Ready for the next focus |
 | :---: | :---: | :---: |
-| ![Ready](docs/screenshots/02_ready.png) | ![Focusing](docs/screenshots/01_main.png) | ![Break](docs/screenshots/05_break.png) |
-
-| Achievements wall | Settings |
-| :---: | :---: |
-| ![Achievements](docs/screenshots/04_achievements.png) | ![Settings](docs/screenshots/03_settings.png) |
+| ![Welcome](docs/screenshots/phase-two-welcome.png) | ![Dark appearance](docs/screenshots/phase-two-ready-dark.png) | ![Waiting](docs/screenshots/phase-two-waiting.png) |
 
 ---
 
@@ -49,13 +45,13 @@ These screenshots show the earlier interface; the current source also distinguis
 
 - **Lives in the menu bar** — a status icon plus a live countdown, always one glance away. No extra window cluttering your desktop.
 - **Animated dog companion** — a focused pup with a subtle breathing animation while you work, and a relaxed coffee-sipping dog (animated GIF) during breaks.
-- **Batch-based Pomodoro flow** — work and break phases chain automatically until the configured number of work sessions is completed. Starting again begins a new batch without clearing today’s progress.
+- **Your next session, your choice** — completed work enters a break; rest ends waiting for you to start again. Automatically starting the next focus is an optional setting. The daily goal provides feedback without limiting further work.
 - **Achievement system** — six badges reward milestones, consistency, consecutive completed sessions, and rest. Sounds and animations respect their settings; visual effects also respect Reduce Motion.
-- **Progress at a glance** — dots show today’s completed work sessions, excluding skips. The achievement wall shows progress toward the next milestone.
-- **Native notifications** — gentle banners when it's time to break, continue, or when you've hit your daily goal.
-- **Configurable** — focus/break durations, a target count, and toggles for sound, animation, and notifications. The target count currently controls both the daily goal and batch length.
+- **Progress at a glance** — a text count and progress bar show today’s completed work sessions, excluding skips. The achievement wall shows progress toward the next milestone.
+- **Native notifications** — reminders for breaks, the next session and daily goals. Settings shows actual macOS permission and alert status, with permission recovery and a test reminder.
+- **Native settings window** — focus/break durations, daily target, optional automation, sound, animation and reminders. The panel offers settings, quit and keyboard actions; app shortcuts do not run globally.
 - **Bilingual** — English and Simplified Chinese, switched automatically by your system language.
-- **Onboarding** — a short three-step welcome that sets your daily goal and requests notification permission.
+- **One-screen first start** — choose 10, 25 or 45 minutes and begin; notification authorization is optional. The welcome explains where to find the menu bar timer.
 - **Paused recovery** — active timers are checkpointed during use and restored paused after restart or sleep. Resume explicitly; time away is not counted as work or rest.
 - **Protected local data** — versioned snapshots preserve statistics and preferences; legacy values are backed up before migration. Unreadable or unsupported data stops the timer and is preserved. The app runs offline and sandboxed.
 
@@ -64,22 +60,22 @@ These screenshots show the earlier interface; the current source also distinguis
 ## 🔄 How it works
 
 ```
- Ready → Start → Work → Break → Work → …
-                              └─ after the configured number of completed sessions → Ready
+ Ready → Start → Work → Break → Wait → Start next focus
+                              └─ optional automation → Work
  Any active phase → Pause → Resume the same phase
  Restart / sleep → Restore paused → Resume explicitly
 ```
 
 - Only a naturally **completed** work phase increments the lifetime total, the completion-day count, the consecutive-work count, and the current batch count.
-- A work phase transitions to a break. When that break finishes, the app continues working unless the batch has reached its target (default 4 completed work sessions).
-- **Skip** changes phase without awarding a completion or advancing the batch. Skipping work breaks the consecutive-work count. Skipping while paused leaves the next phase paused.
+- A completed work phase transitions to a break. By default, rest ends waiting for you to start the next focus. The daily target (default 4) never prevents another session.
+- **End break** always waits for your next start, even with automation enabled. Ending an unfinished focus through the secondary menu adds no completion; the confirmation explains that its unfinished timer is cleared.
 - **Reset** abandons the unfinished phase, clears the current batch and consecutive-work count, and retains completed work and achievements. A phase already at its deadline is settled before the action.
 - **Start** from the ready state begins a fresh batch. Today’s progress remains separate and is not cleared by a new batch or reset.
-- Changes to focus/break durations apply to future phases. The active or paused phase retains its own duration and remaining time.
+- Changes to focus/break durations apply to future phases, including a waiting focus that has not started. A running or paused phase retains its own duration and remaining time.
 - Break time accumulates only while a break is running. Sleeping, paused, and offline intervals are excluded.
 - Daily totals use the calendar day of completion in the time zone saved when the new storage is first created or legacy data is migrated. Changing the system time zone does not rewrite existing day totals.
 
-The current storage contains daily completion counts and the current timer checkpoint, not a history of individual sessions. Read [Reliability and data preservation](docs/reliability.md) for migration details, recovery limits, and manual checks still required.
+The current storage contains daily completion counts and the current timer checkpoint, not a history of individual sessions. Read [Experience rules](docs/experience.md), [Reliability and data preservation](docs/reliability.md), and the [native acceptance record](docs/native-acceptance-2026-10-23.md) for migration details, recovery limits, and completed/pending checks.
 
 ---
 
@@ -108,7 +104,7 @@ cd PomodoroPup
 open PomodoroPup.xcodeproj
 ```
 
-Then build and run from Xcode (**⌘R**). The app appears in your menu bar — click the icon to open the popup.
+Then build and run from Xcode (**⌘R**). A first-launch welcome explains the menu bar entry. Click that entry to open the timer; use settings or quit from the panel.
 
 Run deterministic model and storage tests without launching the app:
 
@@ -137,14 +133,15 @@ The app follows **MVVM** with SwiftUI's `MenuBarExtra` for presentation.
 
 | File | Responsibility |
 | :--- | :--- |
-| `PomodoroPupApp.swift` | App entry point; configures `MenuBarExtra`, the live menu-bar label (with achievement flash), and the onboarding window. |
+| `PomodoroPupApp.swift` | App entry point; configures `MenuBarExtra`, the live menu-bar label (with achievement flash), the first-launch welcome, and an independent settings window. |
 | `DogViewModel.swift` | Phase transitions, elapsed-time settlement, daily/batch statistics, achievements, lifecycle recovery, and feedback after a successful save. |
 | `TimerClock.swift` | Injectable wall time for dates and monotonic uptime for elapsed time. |
 | `StateStore.swift` | Versioned JSON snapshots, validation, and legacy migration with a one-time backup. |
-| `ContentView.swift` | Main popup: dog, countdown, today’s completion dots, pause/recovery/error states, and controls; achievements and settings popovers. |
+| `ContentView.swift` | Main popup: dog, countdown, today’s text and progress bar, phase/pause/waiting/recovery/error states, and controls; achievement wall, settings and quit entries. |
 | `DogView.swift` | The animated dog: breathing focus pose, and the GIF/static rest pose (via an `NSViewRepresentable` GIF player). |
 | `SettingsView.swift` | Time settings, companion-mode toggles, and statistics. |
-| `OnboardingView.swift` | Three-page first-run welcome flow. |
+| `OnboardingView.swift` | Single-page first-run welcome with duration presets. |
+| `NotificationService.swift` | Injectable system notification permission, alert status, authorization and reminder delivery. |
 | `SoundManager.swift` | AVFoundation / system-sound playback. |
 
 **Tech stack:** SwiftUI · Combine · AppKit (GIF rendering & sounds) · UserNotifications · AVFoundation.
@@ -173,6 +170,7 @@ PomodoroPup/
 │   ├── DogViewModel.swift
 │   ├── TimerClock.swift
 │   ├── StateStore.swift
+│   ├── NotificationService.swift
 │   ├── ContentView.swift
 │   ├── DogView.swift
 │   ├── SettingsView.swift

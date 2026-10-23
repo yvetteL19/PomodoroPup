@@ -326,6 +326,89 @@ final class StateStoreTests: XCTestCase {
         XCTAssertLessThan(Int(loaded.totalBreakTime), Int.max)
     }
 
+    func testExistingV1WithoutAdditiveOptionsLoadsFalseAndPreservesOriginalData() throws {
+        var state = PersistedState()
+        state.completedPomodoros = 42
+        state.dailyCounts = ["2026-10-21": 3]
+        state.autoStartNextSession = nil
+        state.isWaitingForNextSession = nil
+        state.timer = PersistedTimer(phase: .working, remainingTime: 125.5, phaseDuration: 1_500,
+                                    wasRunning: true, savedAt: now)
+        let raw = try JSONEncoder().encode(state)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: raw) as? [String: Any])
+        XCTAssertNil(json["autoStartNextSession"])
+        XCTAssertNil(json["isWaitingForNextSession"])
+        defaults.set(raw, forKey: StateStore.snapshotKey)
+
+        let loaded = try store.load(now: now, calendar: calendar)
+
+        XCTAssertEqual(loaded.autoStartNextSession, false)
+        XCTAssertEqual(loaded.isWaitingForNextSession, false)
+        XCTAssertEqual(loaded.completedPomodoros, 42)
+        XCTAssertEqual(loaded.dailyCounts, state.dailyCounts)
+        XCTAssertEqual(loaded.timer, state.timer)
+        XCTAssertEqual(defaults.data(forKey: StateStore.snapshotKey), raw)
+    }
+
+    func testAdditiveOptionsDoNotWeakenRequiredFieldDecoding() throws {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(PersistedState())) as? [String: Any])
+        json.removeValue(forKey: "completedPomodoros")
+        let raw = try JSONSerialization.data(withJSONObject: json)
+        defaults.set(raw, forKey: StateStore.snapshotKey)
+
+        XCTAssertThrowsError(try store.load(now: now, calendar: calendar))
+        XCTAssertEqual(defaults.data(forKey: StateStore.snapshotKey), raw)
+    }
+
+    func testAdditiveOptionsRejectWrongTypesRatherThanTreatingThemAsFalse() throws {
+        let initial = try JSONEncoder().encode(PersistedState())
+        for field in ["autoStartNextSession", "isWaitingForNextSession"] {
+            var json = try XCTUnwrap(JSONSerialization.jsonObject(with: initial) as? [String: Any])
+            json[field] = "false"
+            let raw = try JSONSerialization.data(withJSONObject: json)
+            defaults.set(raw, forKey: StateStore.snapshotKey)
+
+            XCTAssertThrowsError(try store.load(now: now, calendar: calendar), field)
+            XCTAssertEqual(defaults.data(forKey: StateStore.snapshotKey), raw)
+        }
+    }
+
+    func testWaitingSnapshotRoundTripsAsFullUnstartedWorkWithAutoOptionEnabled() throws {
+        var state = PersistedState()
+        state.autoStartNextSession = true
+        state.isWaitingForNextSession = true
+        state.workDuration = 120
+        state.timer = PersistedTimer(phase: .working, remainingTime: 120, phaseDuration: 120,
+                                    wasRunning: false, savedAt: now)
+
+        try store.save(state)
+
+        XCTAssertEqual(try store.load(now: now, calendar: calendar), state)
+    }
+
+    func testWaitingFlagRequiresMatchingFullPausedWorkTimerAndPreservesInvalidSnapshot() throws {
+        let invalidTimers: [PersistedTimer?] = [
+            nil,
+            PersistedTimer(phase: .onBreak, remainingTime: 300, phaseDuration: 300, wasRunning: false, savedAt: now),
+            PersistedTimer(phase: .working, remainingTime: 1_500, phaseDuration: 1_500, wasRunning: true, savedAt: now),
+            PersistedTimer(phase: .working, remainingTime: 1_499, phaseDuration: 1_500, wasRunning: false, savedAt: now),
+            PersistedTimer(phase: .working, remainingTime: 120, phaseDuration: 120, wasRunning: false, savedAt: now)
+        ]
+        for timer in invalidTimers {
+            var state = PersistedState()
+            state.isWaitingForNextSession = true
+            state.timer = timer
+            let raw = try JSONEncoder().encode(state)
+            defaults.set(raw, forKey: StateStore.snapshotKey)
+
+            XCTAssertThrowsError(try store.load(now: now, calendar: calendar)) {
+                XCTAssertEqual($0 as? StateStoreError, .invalidState("isWaitingForNextSession"))
+            }
+            XCTAssertThrowsError(try store.save(PersistedState()))
+            XCTAssertEqual(defaults.data(forKey: StateStore.snapshotKey), raw)
+        }
+    }
+
     private func seed(_ values: [String: Any]) {
         values.forEach { defaults.set($0.value, forKey: $0.key) }
     }

@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 import Combine
-import UserNotifications
 
 // 状态定义
 enum TimerState: String, Codable {
@@ -65,6 +64,7 @@ final class DogViewModel: ObservableObject {
     @Published private(set) var todayPomodoros = 0
     @Published private(set) var lastActiveDate = ""
     @Published private(set) var isTimerRunning = false
+    @Published private(set) var isWaitingForNextSession = false
     @Published private(set) var restoredSession = false
     @Published private(set) var storageError: String?
     @Published var shouldFlashMenuBar = false
@@ -93,12 +93,14 @@ final class DogViewModel: ObservableObject {
     @Published var soundEnabled = true { didSet { settingsChanged() } }
     @Published var animationEnabled = true { didSet { settingsChanged() } }
     @Published var notificationEnabled = true { didSet { settingsChanged() } }
+    @Published var autoStartNextSession = false { didSet { settingsChanged() } }
 
     private let store: StateStore
     private let clock: TimerClock
     private var calendar: Calendar
     private let automaticTicks: Bool
     private let effectsEnabled: Bool
+    private let notificationSender: ((String, String, Bool) -> Void)?
     private var savedState = PersistedState()
     private var phaseDuration: TimeInterval = 1500
     private var breakSeconds: TimeInterval = 0
@@ -115,7 +117,8 @@ final class DogViewModel: ObservableObject {
         clock: TimerClock = SystemTimerClock(),
         calendar: Calendar = .current,
         automaticTicks: Bool = true,
-        effectsEnabled: Bool = true
+        effectsEnabled: Bool = true,
+        notificationSender: ((String, String, Bool) -> Void)? = nil
     ) {
         self.store = store
         self.clock = clock
@@ -124,6 +127,7 @@ final class DogViewModel: ObservableObject {
         self.calendar = gregorian
         self.automaticTicks = automaticTicks
         self.effectsEnabled = effectsEnabled
+        self.notificationSender = notificationSender
 
         do {
             // Load into a value first. No property observer may save during hydration.
@@ -144,11 +148,13 @@ final class DogViewModel: ObservableObject {
             soundEnabled = state.soundEnabled
             animationEnabled = state.animationEnabled
             notificationEnabled = state.notificationEnabled
+            autoStartNextSession = state.autoStartNextSession ?? false
+            isWaitingForNextSession = state.isWaitingForNextSession ?? false
             if let session = state.timer {
                 timerState = session.phase
                 phaseDuration = session.phaseDuration
                 remainingTime = session.remainingTime
-                restoredSession = true
+                restoredSession = !isWaitingForNextSession
                 // Always require an explicit resume. Time while the app was absent
                 // must never turn into completed work or accumulated rest.
             } else {
@@ -177,6 +183,7 @@ final class DogViewModel: ObservableObject {
                 phaseDuration = workDuration
                 remainingTime = phaseDuration
             }
+            isWaitingForNextSession = false
             restoredSession = false
             isTimerRunning = true
             lastTickUptime = clock.uptime
@@ -187,7 +194,9 @@ final class DogViewModel: ObservableObject {
     }
 
     func pauseTimer() {
-        update {
+        // Settle a deadline reached before the click, but do not announce a new
+        // running phase when this transaction's final state is paused or waiting.
+        update(emitFeedback: false) {
             _ = consumeElapsedTime()
             stopRunning()
             restoredSession = false
@@ -195,10 +204,10 @@ final class DogViewModel: ObservableObject {
     }
 
     func skipPhase() {
-        guard timerState != .stopped else { return }
+        guard timerState != .stopped, !isWaitingForNextSession else { return }
         update {
             // If the old phase expired before this click, do not also skip the new one.
-            if !consumeElapsedTime() {
+            if !consumeElapsedTime(allowAutomaticNextSession: timerState != .onBreak) {
                 finishPhase(wasSkipped: true, at: clock.now)
             }
             restoredSession = false
@@ -206,7 +215,9 @@ final class DogViewModel: ObservableObject {
     }
 
     func resetTimer() {
-        update {
+        // Completed work and goal markers still persist at the boundary. The
+        // user's explicit stop suppresses transition sounds and notifications.
+        update(emitFeedback: false) {
             _ = consumeElapsedTime()
             stopRunning()
             timerState = .stopped
@@ -214,6 +225,7 @@ final class DogViewModel: ObservableObject {
             remainingTime = workDuration
             pomodorosInCycle = 0
             currentStreakPomodoros = 0
+            isWaitingForNextSession = false
             restoredSession = false
         }
     }
@@ -227,7 +239,7 @@ final class DogViewModel: ObservableObject {
         update(emitFeedback: false) {
             _ = consumeElapsedTime()
             stopRunning()
-            restoredSession = timerState != .stopped
+            restoredSession = timerState != .stopped && !isWaitingForNextSession
         }
     }
 
@@ -235,7 +247,7 @@ final class DogViewModel: ObservableObject {
         // Also handles a missed sleep notification conservatively: never award the gap.
         update(emitFeedback: false) {
             stopRunning()
-            restoredSession = timerState != .stopped
+            restoredSession = timerState != .stopped && !isWaitingForNextSession
         }
     }
 
@@ -247,11 +259,12 @@ final class DogViewModel: ObservableObject {
         guard loaded, !updating else { return }
         update {
             _ = consumeElapsedTime()
-            if timerState == .stopped {
+            if timerState == .stopped || isWaitingForNextSession {
                 remainingTime = workDuration
                 phaseDuration = workDuration
             }
-            // Active and paused phases retain their own duration snapshot.
+            // Waiting work has not begun. Only running/paused phases retain their
+            // duration snapshot when future-session settings change.
         }
     }
 
@@ -277,7 +290,7 @@ final class DogViewModel: ObservableObject {
     /// UI ticks are only refresh requests. Elapsed time comes from a monotonic clock,
     /// so a late callback or a wall-clock adjustment cannot change session length.
     @discardableResult
-    private func consumeElapsedTime() -> Bool {
+    private func consumeElapsedTime(allowAutomaticNextSession: Bool = true) -> Bool {
         guard isTimerRunning, let previous = lastTickUptime else { return false }
         let nowUptime = clock.uptime
         let elapsed = max(0, nowUptime - previous)
@@ -292,57 +305,63 @@ final class DogViewModel: ObservableObject {
 
         // Attribute a delayed completion to its actual boundary, including midnight.
         let completedAt = clock.now.addingTimeInterval(-(elapsed - credited))
-        finishPhase(wasSkipped: false, at: completedAt)
+        finishPhase(wasSkipped: false, at: completedAt, allowAutomaticNextSession: allowAutomaticNextSession)
         // At most one phase completes per observation. We never invent unattended
         // subsequent phases during a long run-loop stall.
         return true
     }
 
-    private func finishPhase(wasSkipped: Bool, at date: Date) {
+    private func finishPhase(wasSkipped: Bool, at date: Date, allowAutomaticNextSession: Bool = true) {
         guard timerState != .stopped else { return }
         if timerState == .working {
+            var reachedDailyGoal = false
             if wasSkipped {
                 currentStreakPomodoros = 0
             } else {
                 completedPomodoros += 1
                 pomodorosInCycle += 1
                 currentStreakPomodoros += 1
-                savedState.dailyCounts[dayKey(date), default: 0] += 1
+                let completionDay = dayKey(date)
+                savedState.dailyCounts[completionDay, default: 0] += 1
+                let completedThatDay = savedState.dailyCounts[completionDay, default: 0]
+                if completedThatDay >= dailyGoal, savedState.lastGoalNotificationDay != completionDay {
+                    savedState.lastGoalNotificationDay = completionDay
+                    reachedDailyGoal = true
+                    queueNotification(
+                        title: NSLocalizedString("notification.goal_title", comment: ""),
+                        body: String(format: NSLocalizedString("notification.goal_body", comment: ""), completedThatDay)
+                    )
+                }
             }
             timerState = .onBreak
+            isWaitingForNextSession = false
             phaseDuration = breakDuration
             remainingTime = phaseDuration
-            if !wasSkipped {
+            if !wasSkipped && !reachedDailyGoal {
                 queueNotification(
                     title: NSLocalizedString("notification.break_title", comment: ""),
                     body: String(format: NSLocalizedString("notification.break_body", comment: ""), Int(breakDuration / 60))
                 )
             }
         } else {
-            if pomodorosInCycle >= dailyGoal {
+            // Only natural completion of a running break may opt into auto-start.
+            // Ending a break manually or skipping it while paused always waits.
+            let startsAutomatically = autoStartNextSession && isTimerRunning && !wasSkipped && allowAutomaticNextSession
+            timerState = .working
+            phaseDuration = workDuration
+            remainingTime = phaseDuration
+            isWaitingForNextSession = !startsAutomatically
+            restoredSession = false
+            if !startsAutomatically {
                 stopRunning()
-                timerState = .stopped
-                phaseDuration = workDuration
-                remainingTime = workDuration
-                let today = dayKey(clock.now)
-                let completedToday = savedState.dailyCounts[today, default: 0]
-                if completedToday >= dailyGoal, savedState.lastGoalNotificationDay != today {
-                    savedState.lastGoalNotificationDay = today
-                    queueNotification(
-                        title: NSLocalizedString("notification.goal_title", comment: ""),
-                        body: String(format: NSLocalizedString("notification.goal_body", comment: ""), completedToday)
-                    )
-                }
-            } else {
-                timerState = .working
-                phaseDuration = workDuration
-                remainingTime = phaseDuration
-                if !wasSkipped {
-                    queueNotification(
-                        title: NSLocalizedString("notification.continue_title", comment: ""),
-                        body: String(format: NSLocalizedString("notification.continue_body", comment: ""), savedState.dailyCounts[dayKey(clock.now), default: 0] + 1)
-                    )
-                }
+            }
+            if !wasSkipped {
+                queueNotification(
+                    title: NSLocalizedString(startsAutomatically ? "notification.continue_title" : "notification.ready_title", comment: ""),
+                    body: startsAutomatically
+                        ? String(format: NSLocalizedString("notification.continue_body", comment: ""), savedState.dailyCounts[dayKey(clock.now), default: 0] + 1)
+                        : NSLocalizedString("notification.ready_body", comment: "")
+                )
             }
         }
         // Preserve a paused state across skip; never start a second rest timer.
@@ -436,6 +455,8 @@ final class DogViewModel: ObservableObject {
         state.soundEnabled = soundEnabled
         state.animationEnabled = animationEnabled
         state.notificationEnabled = notificationEnabled
+        state.autoStartNextSession = autoStartNextSession
+        state.isWaitingForNextSession = isWaitingForNextSession
         state.timer = timerState == .stopped ? nil : PersistedTimer(
             phase: timerState,
             remainingTime: remainingTime,
@@ -492,13 +513,6 @@ final class DogViewModel: ObservableObject {
         }
     }
 
-    func requestNotificationPermission() {
-        guard effectsEnabled else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, error in
-            if let error { print("Notification authorization failed: \(error.localizedDescription)") }
-        }
-    }
-
     private func queueNotification(title: String, body: String) {
         guard feedbackAllowed, notificationEnabled else { return }
         feedback.append { [weak self] in self?.sendNotification(title: title, body: body) }
@@ -506,14 +520,6 @@ final class DogViewModel: ObservableObject {
 
     func sendNotification(title: String, body: String) {
         guard effectsEnabled, notificationEnabled, storageError == nil else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = soundEnabled ? .default : nil
-        UNUserNotificationCenter.current().add(UNNotificationRequest(
-            identifier: UUID().uuidString, content: content, trigger: nil
-        )) { error in
-            if let error { print("Notification delivery failed: \(error.localizedDescription)") }
-        }
+        notificationSender?(title, body, soundEnabled)
     }
 }

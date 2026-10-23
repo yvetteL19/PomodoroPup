@@ -26,6 +26,9 @@ struct PersistedState: Codable, Equatable {
     var soundEnabled: Bool = true
     var animationEnabled: Bool = true
     var notificationEnabled: Bool = true
+    // Additive v1 fields: absent values from earlier snapshots mean false.
+    var autoStartNextSession: Bool? = false
+    var isWaitingForNextSession: Bool? = false
     var timer: PersistedTimer?
 }
 
@@ -152,12 +155,16 @@ final class StateStore {
         guard version.schemaVersion == 1 else {
             throw StateStoreError.unsupportedVersion(version.schemaVersion)
         }
-        let state: PersistedState
+        var state: PersistedState
         do {
             state = try decoder.decode(PersistedState.self, from: data)
         } catch {
             throw StateStoreError.invalidSnapshot
         }
+        // Normalize only the new optional fields. Existing required v1 fields still
+        // use synthesized strict decoding and must never fall back to defaults.
+        state.autoStartNextSession = state.autoStartNextSession ?? false
+        state.isWaitingForNextSession = state.isWaitingForNextSession ?? false
         try validate(state)
         return state
     }
@@ -214,6 +221,13 @@ final class StateStore {
             }
             guard timer.savedAt.timeIntervalSinceReferenceDate.isFinite else {
                 throw StateStoreError.invalidState("timer.savedAt")
+            }
+        }
+        if state.isWaitingForNextSession == true {
+            guard let timer = state.timer, timer.phase == .working, !timer.wasRunning,
+                  timer.remainingTime == timer.phaseDuration,
+                  timer.phaseDuration == state.workDuration else {
+                throw StateStoreError.invalidState("isWaitingForNextSession")
             }
         }
     }

@@ -186,6 +186,7 @@ final class DogViewModelTests: XCTestCase {
         XCTAssertEqual(fixture.model.totalBreakTime, 0)
         fixture.model.skipPhase()
         XCTAssertEqual(fixture.model.timerState, .working)
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
         XCTAssertFalse(fixture.model.isTimerRunning)
         fixture.clock.advance(600)
         fixture.model.refresh()
@@ -253,6 +254,7 @@ final class DogViewModelTests: XCTestCase {
         XCTAssertEqual(fixture.model.todayPomodoros, 0)
         XCTAssertEqual(fixture.model.lastActiveDate, "2026-10-22")
         fixture.model.skipPhase()
+        fixture.model.startTimer()
         fixture.clock.advance(60)
         fixture.model.refresh()
         XCTAssertEqual(fixture.model.todayPomodoros, 1)
@@ -354,25 +356,32 @@ final class DogViewModelTests: XCTestCase {
         XCTAssertEqual(fixture.model.completedPomodoros, 0)
     }
 
-    func testStartingAfterCompletedBatchResetsBatchButPreservesToday() async {
+    func testReachingDailyGoalKeepsNextSessionAvailableWithoutClearingProgress() async throws {
         let fixture = Fixture()
         fixture.useShortDurations()
         fixture.model.dailyGoal = 1
         completeWork(fixture)
+        let completed = try StateStore(defaults: fixture.defaults).load(now: fixture.clock.now, calendar: fixture.calendar)
+        XCTAssertEqual(completed.lastGoalNotificationDay, "2026-10-22")
+        XCTAssertEqual(fixture.model.timerState, .onBreak)
         finishBreak(fixture)
-        XCTAssertEqual(fixture.model.timerState, .stopped)
+        XCTAssertEqual(fixture.model.timerState, .working)
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
         XCTAssertFalse(fixture.model.isTimerRunning)
         XCTAssertEqual(fixture.model.pomodorosInCycle, 1)
         XCTAssertEqual(fixture.model.todayPomodoros, 1)
 
         fixture.model.startTimer()
         XCTAssertEqual(fixture.model.timerState, .working)
-        XCTAssertEqual(fixture.model.pomodorosInCycle, 0)
+        XCTAssertFalse(fixture.model.isWaitingForNextSession)
+        XCTAssertEqual(fixture.model.pomodorosInCycle, 1)
         XCTAssertEqual(fixture.model.todayPomodoros, 1)
         fixture.clock.advance(60)
         fixture.model.refresh()
-        XCTAssertEqual(fixture.model.pomodorosInCycle, 1)
+        XCTAssertEqual(fixture.model.pomodorosInCycle, 2)
         XCTAssertEqual(fixture.model.todayPomodoros, 2)
+        let continued = try StateStore(defaults: fixture.defaults).load(now: fixture.clock.now, calendar: fixture.calendar)
+        XCTAssertEqual(continued.lastGoalNotificationDay, "2026-10-22")
     }
 
     func testChangingDurationDoesNotReplacePausedSessionRemainingTime() async {
@@ -393,7 +402,7 @@ final class DogViewModelTests: XCTestCase {
         XCTAssertEqual(fixture.model.remainingTime, 120)
     }
 
-    func testInvalidDurationsAndBatchGoalAreClampedAndRemainPersistable() async throws {
+    func testInvalidDurationsAndDailyGoalAreClampedAndRemainPersistable() async throws {
         let fixture = Fixture()
         fixture.model.workDuration = -10
         XCTAssertEqual(fixture.model.workDuration, 60)
@@ -488,6 +497,249 @@ final class DogViewModelTests: XCTestCase {
         fixture.model.refresh()
         XCTAssertEqual(fixture.model.completedPomodoros, 0)
         XCTAssertEqual(fixture.defaults.data(forKey: StateStore.snapshotKey), damaged)
+    }
+
+    func testDefaultRestCompletionWaitsForExplicitStartWithoutCountingIdleTime() async {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        XCTAssertFalse(fixture.model.autoStartNextSession)
+        completeWork(fixture)
+        finishBreak(fixture)
+
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
+        XCTAssertEqual(fixture.model.timerState, .working)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        XCTAssertFalse(fixture.model.restoredSession)
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+        fixture.clock.advance(3600)
+        fixture.model.refresh()
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+        XCTAssertEqual(fixture.model.completedPomodoros, 1)
+        XCTAssertEqual(fixture.model.totalBreakTime, 60)
+
+        let checkpoint = fixture.defaults.data(forKey: StateStore.snapshotKey)
+        fixture.model.skipPhase()
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
+        XCTAssertEqual(fixture.defaults.data(forKey: StateStore.snapshotKey), checkpoint)
+
+        fixture.model.startTimer()
+        XCTAssertFalse(fixture.model.isWaitingForNextSession)
+        XCTAssertTrue(fixture.model.isTimerRunning)
+        fixture.clock.advance(60)
+        fixture.model.refresh()
+        XCTAssertEqual(fixture.model.completedPomodoros, 2)
+    }
+
+    func testOptedInNaturalRestCompletionAutomaticallyStartsEvenAfterDailyGoal() async throws {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        fixture.model.dailyGoal = 1
+        fixture.model.autoStartNextSession = true
+        completeWork(fixture)
+        finishBreak(fixture)
+
+        XCTAssertEqual(fixture.model.timerState, .working)
+        XCTAssertTrue(fixture.model.isTimerRunning)
+        XCTAssertFalse(fixture.model.isWaitingForNextSession)
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+        fixture.clock.advance(60)
+        fixture.model.refresh()
+        XCTAssertEqual(fixture.model.todayPomodoros, 2)
+        let saved = try StateStore(defaults: fixture.defaults).load(now: fixture.clock.now, calendar: fixture.calendar)
+        XCTAssertEqual(saved.autoStartNextSession, true)
+        XCTAssertEqual(saved.lastGoalNotificationDay, "2026-10-22")
+
+        let recovered = fixture.reopen()
+        XCTAssertTrue(recovered.autoStartNextSession)
+        XCTAssertFalse(recovered.isTimerRunning)
+        XCTAssertFalse(recovered.isWaitingForNextSession)
+        XCTAssertTrue(recovered.restoredSession)
+    }
+
+    func testEndingRunningBreakByUserAlwaysWaitsEvenWithAutoStart() async {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        fixture.model.autoStartNextSession = true
+        completeWork(fixture)
+        fixture.clock.advance(10)
+        fixture.model.skipPhase()
+
+        XCTAssertEqual(fixture.model.timerState, .working)
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+        XCTAssertEqual(fixture.model.totalBreakTime, 10)
+        fixture.clock.advance(3600)
+        fixture.model.refresh()
+        XCTAssertEqual(fixture.model.completedPomodoros, 1)
+        XCTAssertEqual(fixture.model.totalBreakTime, 10)
+    }
+
+    func testEndingBreakAtItsNaturalDeadlineStillWaitsWithAutoStart() async {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        fixture.model.autoStartNextSession = true
+        completeWork(fixture)
+        fixture.clock.advance(60)
+        fixture.model.skipPhase()
+
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+        XCTAssertEqual(fixture.model.totalBreakTime, 60)
+        XCTAssertEqual(fixture.model.completedPomodoros, 1)
+    }
+
+    func testPausedBreakSkipNeverAutoStartsNextSession() async {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        fixture.model.autoStartNextSession = true
+        completeWork(fixture)
+        fixture.model.pauseTimer()
+        fixture.clock.advance(3600)
+        fixture.model.skipPhase()
+
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        XCTAssertEqual(fixture.model.totalBreakTime, 0)
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+    }
+
+    func testWaitingSurvivesRestartSleepWakeWithoutIncompleteSessionRecoveryMessage() async {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        completeWork(fixture)
+        finishBreak(fixture)
+        fixture.model.autoStartNextSession = true
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        fixture.model.prepareForTermination()
+        XCTAssertFalse(fixture.model.restoredSession)
+        fixture.clock.advance(3600)
+
+        let recovered = fixture.reopen()
+        XCTAssertTrue(recovered.isWaitingForNextSession)
+        XCTAssertTrue(recovered.autoStartNextSession)
+        XCTAssertFalse(recovered.isTimerRunning)
+        XCTAssertFalse(recovered.restoredSession)
+        XCTAssertEqual(recovered.remainingTime, 60)
+        recovered.handleSleep()
+        fixture.clock.advance(3600)
+        recovered.handleWake()
+        XCTAssertTrue(recovered.isWaitingForNextSession)
+        XCTAssertFalse(recovered.restoredSession)
+        XCTAssertEqual(recovered.completedPomodoros, 1)
+        XCTAssertEqual(recovered.totalBreakTime, 60)
+
+        recovered.startTimer()
+        XCTAssertFalse(recovered.isWaitingForNextSession)
+        XCTAssertTrue(recovered.isTimerRunning)
+    }
+
+    func testDurationChangesUpdateWaitingWorkButNotRunningOrPausedWork() async {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        completeWork(fixture)
+        finishBreak(fixture)
+        fixture.model.workDuration = 120
+        XCTAssertTrue(fixture.model.isWaitingForNextSession)
+        XCTAssertEqual(fixture.model.remainingTime, 120)
+        let waiting = fixture.reopen()
+        XCTAssertTrue(waiting.isWaitingForNextSession)
+        XCTAssertEqual(waiting.remainingTime, 120)
+
+        fixture.model.startTimer()
+        fixture.clock.advance(10)
+        fixture.model.refresh()
+        fixture.model.workDuration = 180
+        XCTAssertEqual(fixture.model.remainingTime, 110)
+        fixture.model.pauseTimer()
+        fixture.model.workDuration = 240
+        XCTAssertEqual(fixture.model.remainingTime, 110)
+        XCTAssertFalse(fixture.model.isWaitingForNextSession)
+        XCTAssertNil(fixture.model.storageError)
+    }
+
+    func testExistingV1WithoutNewOptionsRestoresAnActualSessionPaused() async throws {
+        let fixture = Fixture()
+        var oldState = PersistedState()
+        oldState.autoStartNextSession = nil
+        oldState.isWaitingForNextSession = nil
+        oldState.workDuration = 60
+        oldState.timer = PersistedTimer(phase: .working, remainingTime: 45, phaseDuration: 60,
+                                        wasRunning: true, savedAt: fixture.clock.now)
+        try StateStore(defaults: fixture.defaults).save(oldState)
+
+        let recovered = fixture.reopen()
+
+        XCTAssertFalse(recovered.autoStartNextSession)
+        XCTAssertFalse(recovered.isWaitingForNextSession)
+        XCTAssertFalse(recovered.isTimerRunning)
+        XCTAssertTrue(recovered.restoredSession)
+        XCTAssertEqual(recovered.remainingTime, 45)
+        XCTAssertNil(recovered.storageError)
+    }
+
+    func testGoalMarkerRequiresCompletedWorkAndCanAdvanceOnNextDay() async throws {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        fixture.model.dailyGoal = 2
+        for _ in 0..<2 {
+            fixture.model.startTimer()
+            fixture.model.skipPhase()
+            fixture.model.skipPhase()
+        }
+        func goalDay() throws -> String? {
+            try StateStore(defaults: fixture.defaults).load(now: fixture.clock.now, calendar: fixture.calendar).lastGoalNotificationDay
+        }
+        XCTAssertNil(try goalDay())
+        completeWork(fixture)
+        XCTAssertNil(try goalDay())
+        finishBreak(fixture)
+        completeWork(fixture)
+        XCTAssertEqual(try goalDay(), "2026-10-22")
+        finishBreak(fixture)
+        completeWork(fixture)
+        XCTAssertEqual(try goalDay(), "2026-10-22")
+        finishBreak(fixture)
+
+        fixture.clock.move(to: date("2026-10-23T12:00:00Z"))
+        fixture.model.refresh()
+        completeWork(fixture)
+        XCTAssertEqual(try goalDay(), "2026-10-22")
+        finishBreak(fixture)
+        completeWork(fixture)
+        XCTAssertEqual(try goalDay(), "2026-10-23")
+    }
+
+    func testGoalMarkerUsesActualCompletionDayForDelayedCallback() async throws {
+        let fixture = Fixture(now: date("2026-10-21T23:58:30Z"))
+        fixture.useShortDurations()
+        fixture.model.dailyGoal = 1
+        fixture.model.startTimer()
+        fixture.clock.advance(120)
+        fixture.model.refresh()
+
+        let state = try StateStore(defaults: fixture.defaults).load(now: fixture.clock.now, calendar: fixture.calendar)
+        XCTAssertEqual(state.lastGoalNotificationDay, "2026-10-21")
+        XCTAssertEqual(fixture.model.todayPomodoros, 0)
+    }
+
+    func testResetFromWaitingReturnsReadyWithoutDeletingCompletedWork() async {
+        let fixture = Fixture()
+        fixture.useShortDurations()
+        completeWork(fixture)
+        finishBreak(fixture)
+        fixture.model.resetTimer()
+
+        XCTAssertEqual(fixture.model.timerState, .stopped)
+        XCTAssertFalse(fixture.model.isWaitingForNextSession)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        XCTAssertEqual(fixture.model.todayPomodoros, 1)
+        XCTAssertEqual(fixture.model.pomodorosInCycle, 0)
+        fixture.model.startTimer()
+        XCTAssertTrue(fixture.model.isTimerRunning)
+        XCTAssertEqual(fixture.model.todayPomodoros, 1)
     }
 
     private func completeWork(_ fixture: Fixture, file: StaticString = #filePath, line: UInt = #line) {
