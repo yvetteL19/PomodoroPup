@@ -28,6 +28,7 @@ let package = Package(
             ],
             sources: [
                 "DogViewModel.swift",
+                "NotificationService.swift",
                 "SoundManager.swift",
                 "StateStore.swift",
                 "TimerClock.swift"

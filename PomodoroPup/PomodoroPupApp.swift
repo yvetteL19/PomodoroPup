@@ -3,30 +3,58 @@ import UserNotifications
 
 @main
 struct PomodoroPupApp: App {
-    // 初始化 ViewModel
-    @StateObject var dogViewModel = DogViewModel()
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // macOS 菜单栏应用核心配置
         MenuBarExtra {
-            // 点击菜单栏图标弹出的主视图
             ContentView()
-                .environmentObject(dogViewModel)
+                .environmentObject(appDelegate.dogViewModel)
+                .environmentObject(appDelegate.notificationService)
         } label: {
-            // --- 菜单栏常驻显示区域 ---
-            MenuBarLabel(vm: dogViewModel)
+            MenuBarLabel(vm: appDelegate.dogViewModel)
         }
-        .menuBarExtraStyle(.window) // 下拉窗口样式
+        .menuBarExtraStyle(.window)
+        .commands {
+            ApplicationCommands(vm: appDelegate.dogViewModel)
+        }
 
-        // 独立的 Onboarding 窗口
-        Window("Welcome", id: "onboarding") {
-            OnboardingView(showOnboarding: .constant(true), isWindow: true)
-                .environmentObject(dogViewModel)
+        Settings {
+            SettingsWindowContent(vm: appDelegate.dogViewModel, notifications: appDelegate.notificationService)
         }
-        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
-        .defaultPosition(.center)
+    }
+}
+
+private struct ApplicationCommands: Commands {
+    @ObservedObject var vm: DogViewModel
+
+    var body: some Commands {
+        // These are ordinary application commands, active only when this app
+        // has focus. No global keyboard monitor takes keys from another app.
+        CommandGroup(replacing: .appSettings) {
+            SettingsLink {
+                Text(NSLocalizedString("settings.title", comment: ""))
+            }
+            .keyboardShortcut(",", modifiers: .command)
+            .disabled(vm.storageError != nil)
+        }
+        CommandGroup(replacing: .appTermination) {
+            Button(NSLocalizedString("button.quit", comment: "")) {
+                NSApplication.shared.terminate(nil)
+            }
+            .keyboardShortcut("q", modifiers: .command)
+        }
+    }
+}
+
+private struct SettingsWindowContent: View {
+    @ObservedObject var vm: DogViewModel
+    @ObservedObject var notifications: NotificationService
+
+    var body: some View {
+        SettingsView()
+            .environmentObject(vm)
+            .environmentObject(notifications)
     }
 }
 
@@ -37,7 +65,7 @@ struct MenuBarLabel: View {
     @State private var flashOpacity: Double = 1.0
 
     private var isPaused: Bool {
-        vm.timerState != .stopped && !vm.isTimerRunning
+        vm.timerState != .stopped && !vm.isTimerRunning && !vm.isWaitingForNextSession
     }
 
     private var animationsAllowed: Bool {
@@ -49,6 +77,10 @@ struct MenuBarLabel: View {
     }
 
     private var statusText: String {
+        if let error = vm.storageError { return error }
+        if vm.isWaitingForNextSession {
+            return NSLocalizedString("status.waiting_working", comment: "")
+        }
         if isPaused {
             return NSLocalizedString(vm.timerState == .working ? "status.paused_working" : "status.paused_break", comment: "")
         }
@@ -62,7 +94,13 @@ struct MenuBarLabel: View {
     var body: some View {
         HStack(spacing: 6) {
             // 1. 状态图标逻辑
-            if isPaused {
+            if vm.storageError != nil {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14))
+            } else if vm.isWaitingForNextSession {
+                Image(systemName: "play.circle")
+                    .font(.system(size: 14))
+            } else if isPaused {
                 Image(systemName: "pause.circle.fill")
                     .font(.system(size: 14))
             } else if vm.timerState == .stopped {
@@ -105,19 +143,80 @@ struct MenuBarLabel: View {
     }
 }
 
-// AppDelegate - 处理前台通知显示
-class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    let notificationService = NotificationService()
+    lazy var dogViewModel: DogViewModel = {
+        let notifications = notificationService
+        return DogViewModel(notificationSender: { title, body, sound in
+            Task { @MainActor in
+                await notifications.send(title: title, body: body, soundEnabled: sound)
+            }
+        })
+    }()
+    private var onboardingWindowController: NSWindowController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
+        Task { await notificationService.refresh() }
+        if dogViewModel.storageError == nil,
+           dogViewModel.timerState == .stopped,
+           !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            // A menu-bar-only app has no initial WindowGroup. Present this window
+            // explicitly instead of waiting for the user to discover the menu icon.
+            DispatchQueue.main.async { [weak self] in self?.showOnboarding() }
+        }
     }
 
-    // 允许在前台显示通知
-    func userNotificationCenter(
+    func applicationDidBecomeActive(_ notification: Notification) {
+        dogViewModel.refresh()
+        Task { await notificationService.refresh() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        dogViewModel.prepareForTermination()
+    }
+
+    private func showOnboarding() {
+        // A user may start from the menu before this deferred presentation runs.
+        // A recovered or already active phase must keep its own duration and UI.
+        guard dogViewModel.timerState == .stopped, dogViewModel.storageError == nil else { return }
+        guard onboardingWindowController == nil else {
+            onboardingWindowController?.showWindow(nil)
+            return
+        }
+        let content = OnboardingView(showOnboarding: .constant(true), isWindow: true, onComplete: { [weak self] in
+            self?.onboardingWindowController?.close()
+            self?.onboardingWindowController = nil
+        })
+        .environmentObject(dogViewModel)
+        .environmentObject(notificationService)
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.sizingOptions = [.minSize, .intrinsicContentSize]
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = NSLocalizedString("onboarding.welcome.title", comment: "")
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.center()
+        let controller = NSWindowController(window: window)
+        onboardingWindowController = controller
+        controller.showWindow(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        // 即使 app 在前台也显示通知横幅和声音
-        completionHandler([.banner, .sound])
+        var options: UNNotificationPresentationOptions = [.banner, .list]
+        if notification.request.content.sound != nil { options.insert(.sound) }
+        completionHandler(options)
     }
 }

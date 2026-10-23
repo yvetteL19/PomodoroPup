@@ -2,108 +2,90 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject var vm: DogViewModel
+    @EnvironmentObject var notificationService: NotificationService
     @Binding var showOnboarding: Bool
-    @Environment(\.dismissWindow) var dismissWindow
-    var isWindow: Bool = false  // 是否作为独立窗口显示
-    @State private var currentPage = 0
+    @Environment(\.dismissWindow) private var dismissWindow
+    var isWindow: Bool = false
+    var onComplete: (() -> Void)? = nil
+    @State private var selectedMinutes = 25
 
     var body: some View {
         VStack(spacing: 20) {
-            if currentPage == 0 {
-                // 欢迎页
-                Image("dog_work")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 120, height: 120)
-
+            Image("dog_work").resizable().scaledToFit().frame(width: 120, height: 120)
+                .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 18))
+                .accessibilityHidden(true)
+            VStack(spacing: 8) {
                 Text(NSLocalizedString("onboarding.welcome.title", comment: ""))
-                    .font(.title2)
-                    .bold()
-
+                    .font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
                 Text(NSLocalizedString("onboarding.welcome.subtitle", comment: ""))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+                    .foregroundStyle(.secondary)
+            }.multilineTextAlignment(.center)
+            Label(NSLocalizedString("onboarding.menu_bar", comment: ""), systemImage: "menubar.rectangle")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Spacer()
-
-                Button(NSLocalizedString("onboarding.next", comment: "")) {
-                    currentPage = 1
-                }
-                .buttonStyle(PrimaryButtonStyle())
-
-            } else if currentPage == 1 {
-                // 设置目标页
-                Text(NSLocalizedString("onboarding.goal.title", comment: ""))
-                    .font(.title2)
-                    .bold()
-
-                Text(NSLocalizedString("onboarding.goal.subtitle", comment: ""))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
-                HStack(spacing: 16) {
-                    ForEach([2, 4, 6, 8], id: \.self) { count in
-                        Button("\(count)") {
-                            vm.dailyGoal = count
-                        }
-                        .frame(width: 50, height: 50)
-                        .background(vm.dailyGoal == count ? Color.black : Color.gray.opacity(0.2))
-                        .foregroundColor(vm.dailyGoal == count ? .white : .black)
-                        .cornerRadius(8)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(NSLocalizedString("onboarding.duration", comment: "")).font(.headline)
+                Picker(NSLocalizedString("onboarding.duration", comment: ""), selection: $selectedMinutes) {
+                    ForEach([10, 25, 45], id: \.self) { minutes in
+                        Text(String(format: NSLocalizedString("onboarding.minutes", comment: ""), minutes)).tag(minutes)
                     }
-                }
+                }.pickerStyle(.segmented).labelsHidden()
+            }.disabled(vm.storageError != nil)
 
-                Spacer()
-
-                Button(NSLocalizedString("onboarding.next", comment: "")) {
-                    currentPage = 2
-                }
-                .buttonStyle(PrimaryButtonStyle())
-
-            } else {
-                // 通知权限页
-                Image(systemName: "bell.badge")
-                    .font(.system(size: 60))
-                    .foregroundColor(.black)
-
-                Text(NSLocalizedString("onboarding.notification.title", comment: ""))
-                    .font(.title2)
-                    .bold()
-
-                Text(NSLocalizedString("onboarding.notification.subtitle", comment: ""))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
-                Spacer()
-
-                VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(NSLocalizedString("onboarding.notification_optional", comment: ""), systemImage: "bell")
+                    .font(.callout).foregroundStyle(.secondary)
+                if notificationService.status == .allowed {
+                    Label(NSLocalizedString("notification.status_allowed", comment: ""), systemImage: "checkmark.circle")
+                        .font(.callout).foregroundStyle(.secondary)
+                } else if notificationService.status == .requesting {
+                    ProgressView().controlSize(.small)
+                } else if notificationService.status == .denied || notificationService.status == .alertsDisabled {
+                    Text(NSLocalizedString("onboarding.notification_later", comment: ""))
+                        .font(.callout).foregroundStyle(.secondary)
+                } else {
                     Button(NSLocalizedString("onboarding.enable", comment: "")) {
-                        vm.requestNotificationPermission()
-                        completeOnboarding()
+                        Task { await notificationService.requestPermission() }
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-
-                    Button(NSLocalizedString("onboarding.skip", comment: "")) {
-                        completeOnboarding()
-                    }
-                    .foregroundColor(.secondary)
                 }
+                if let error = notificationService.errorMessage {
+                    Text(error).font(.callout).foregroundStyle(.red)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+
+            if let error = vm.storageError {
+                Text(error).font(.callout).foregroundStyle(.red)
             }
+            Button(String(format: NSLocalizedString("onboarding.start", comment: ""), selectedMinutes)) {
+                guard vm.timerState == .stopped else {
+                    completeOnboarding()
+                    return
+                }
+                vm.workDuration = Double(selectedMinutes) * 60
+                guard vm.storageError == nil else { return }
+                vm.startTimer()
+                if vm.isTimerRunning { completeOnboarding() }
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large)
+            .keyboardShortcut(.defaultAction).disabled(vm.storageError != nil)
+            Button(NSLocalizedString("onboarding.start_later", comment: "")) { completeOnboarding() }
+                .buttonStyle(.borderless).keyboardShortcut(.cancelAction)
         }
-        .frame(width: 320, height: 400)
-        .padding()
-        .background(Color.white)
+        .padding(28).frame(width: 440)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .task { await notificationService.refresh() }
+        .onChange(of: vm.timerState) { _, phase in
+            // The menu bar remains usable while welcome is open. Starting there
+            // completes welcome without replacing that session's selected duration.
+            if phase != .stopped && vm.storageError == nil { completeOnboarding() }
+        }
     }
 
     private func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
-        if isWindow {
-            dismissWindow(id: "onboarding")
-        } else {
-            showOnboarding = false
-        }
+        if let onComplete { onComplete() }
+        else if isWindow { dismissWindow(id: "onboarding") }
+        else { showOnboarding = false }
     }
 }
