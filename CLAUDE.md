@@ -48,6 +48,7 @@ These unsigned builds validate compilation; they do not create a signed or notar
 - Waiting does not accrue time. Start clears the waiting flag; Skip is a no-op while waiting. Enabling automation never starts an already waiting timer.
 - Skipping paused work leaves rest paused; ending paused rest enters an unstarted waiting focus. Reset clears the unfinished phase, batch, and consecutive-work count while retaining completed statistics and achievements.
 - Actions first settle elapsed time. A click after a phase deadline completes that old phase; Skip does not then also skip the newly entered phase.
+- Pause and Reset suppress transition feedback during that settlement while preserving earned completions, achievements and the daily-goal marker.
 - Changing durations affects future phases, including an unstarted waiting focus. A running or paused phase retains `phaseDuration` and `remainingTime`.
 - Combine’s one-second timer requests a refresh. `TimerClock.uptime` determines elapsed time; callback count is not the clock. A refresh settles at most one phase and does not invent later completed phases during a long delay.
 - Rest uses the same elapsed-time path, retaining fractional seconds in the snapshot. The published statistic displays whole seconds.
@@ -95,4 +96,4 @@ User-facing strings are in `PomodoroPup/en.lproj/Localizable.strings` and `Pomod
 
 ## Verification boundary
 
-Use [docs/experience.md](docs/experience.md) for the second-stage interaction scope and [docs/reliability.md](docs/reliability.md) for data contracts, commands, and the manual validation checklist. Automated tests must use a unique `UserDefaults` suite and disable real notifications/audio. They exercise model lifecycle methods, not actual Mac sleep, native notification delivery, accessibility rendering, or release signing. Do not claim those manual checks have passed without performing them in an isolated test environment.
+Use [docs/experience.md](docs/experience.md) for the second-stage interaction scope, [docs/reliability.md](docs/reliability.md) for data contracts, and [the native acceptance record](docs/native-acceptance-2026-10-23.md) for actual checks and remaining gaps. `Scripts/build-acceptance-app.sh` builds a separately identified, locally signed QA app without launching it or rewriting preferences. Quit the QA app before rebuilding. Automated tests must use a unique `UserDefaults` suite and disable real notifications/audio. They exercise model lifecycle methods, not actual Mac sleep, native notification delivery, accessibility rendering, or release signing. Do not claim those manual checks have passed without performing them in an isolated test environment.

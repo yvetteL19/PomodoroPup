@@ -37,11 +37,11 @@ Interface surfaces use semantic system colors. A light illustration plate protec
 
 ## Validation
 
-The implementation passed 76 isolated automated tests and native view rendering checks for English/Chinese, light/dark appearance, and ready, paused, rest, waiting, welcome, settings and achievement layouts. The checked view renders do not exercise production window routing or real OS permissions. Selected previews are stored in `docs/screenshots/phase-two-*.png`.
+The implementation passes 80 isolated automated tests. Native view rendering checks cover English/Chinese, light/dark appearance, and ready, paused, rest, waiting, welcome, settings and achievement layouts. The checked view renders do not exercise production window routing or real OS permissions. Selected previews are stored in `docs/screenshots/phase-two-*.png`. Actual Mac acceptance results and remaining checks are recorded separately in [native-acceptance-2026-10-23.md](native-acceptance-2026-10-23.md).
 
 Automated coverage extends the isolated first-stage tests with old-v1 compatibility, waiting and restart, opt-in automation, manual rest endings, daily targets, and notification authorization/delivery behavior using a fake notification client. No test requests real system notification permission or changes the real app's preferences.
 
-Before a public release, validate these native interactions in an isolated app environment:
+Before a public release, complete the remaining interactions in the acceptance record using an isolated app environment:
 
 - A clean launch presents the welcome screen; later launches do not repeat it after completion. Starting closes welcome and leaves the menu bar timer discoverable.
 - Start, pause, resume, early end, rest end and next focus work with mouse and keyboard; settings and quit are reachable. Closing settings returns naturally to the menu bar workflow.

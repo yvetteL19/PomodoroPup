@@ -75,7 +75,7 @@ These are native SwiftUI renders of the current source using isolated sample pre
 - Break time accumulates only while a break is running. Sleeping, paused, and offline intervals are excluded.
 - Daily totals use the calendar day of completion in the time zone saved when the new storage is first created or legacy data is migrated. Changing the system time zone does not rewrite existing day totals.
 
-The current storage contains daily completion counts and the current timer checkpoint, not a history of individual sessions. Read [Experience rules](docs/experience.md) and [Reliability and data preservation](docs/reliability.md) for migration details, recovery limits, and manual checks still required.
+The current storage contains daily completion counts and the current timer checkpoint, not a history of individual sessions. Read [Experience rules](docs/experience.md), [Reliability and data preservation](docs/reliability.md), and the [native acceptance record](docs/native-acceptance-2026-10-23.md) for migration details, recovery limits, and completed/pending checks.
 
 ---
 

@@ -60,7 +60,7 @@ Investigation should preserve copies of the original data and use an isolated pr
 
 A refresh can complete **at most one phase**. If a 25-minute work phase is observed late, it is credited once and the rest phase begins with its full duration. The extra delay does not create a series of unattended work/rest completions. The completion is attributed to the computed end boundary, including a boundary before midnight even if the callback arrives after midnight.
 
-Only completed work advances total, daily and batch progress. A skip changes phase without awarding work. Skipping paused work leaves rest paused; ending paused rest waits for an explicit next start. Reset clears the current batch and consecutive-work count but retains completed work. Actions first settle a phase that has already reached its deadline, preventing a late Skip click from skipping two phases.
+Only completed work advances total, daily and batch progress. A skip changes phase without awarding work. Skipping paused work leaves rest paused; ending paused rest waits for an explicit next start. Reset clears the current batch and consecutive-work count but retains completed work. Actions first settle a phase that has already reached its deadline, preventing a late Skip click from skipping two phases. Pause and Reset settle that boundary silently: earned work, achievements and the daily-goal marker still persist, but transition sounds and notifications do not announce a phase that the action just stopped.
 
 A running or paused phase retains its own duration snapshot when settings change; an unstarted waiting focus adopts the new work duration. Starting from the ready state begins a new batch. The main-view progress show today’s completed work, so they are not reset by a new batch. The daily target only provides progress feedback; it no longer stops a batch. Rest finishes into a waiting state by default. Optional automation only starts a new focus after a naturally finished running break; manually ending rest always waits.
 
@@ -103,7 +103,7 @@ xcodebuild -project PomodoroPup.xcodeproj -scheme PomodoroPup \
 
 ## Manual checks not yet performed
 
-The following are release-validation tasks, **not completed checks** for this implementation. Use an isolated test environment so real user data is not changed.
+The following matrix still needs full release validation. Partial native results, including first launch, settings and a normal-quit checkpoint, are documented in [the 2026-10-23 acceptance record](native-acceptance-2026-10-23.md); those results do not certify the entire matrix. Use an isolated test environment so real user data is not changed.
 
 - **Actual Mac sleep and wake:** test active work, active rest and an already paused phase; close the lid or sleep the system, wake later, and confirm paused state, stable totals and explicit Resume. Repeat near a phase deadline.
 - **Normal quit and unexpected termination:** restart an isolated build during both work and rest; inspect restored phase, duration, remaining time and unchanged offline statistics. Distinguish the last saved checkpoint from the exact instant of a forced stop.

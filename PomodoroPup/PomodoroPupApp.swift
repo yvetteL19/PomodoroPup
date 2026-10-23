@@ -15,7 +15,7 @@ struct PomodoroPupApp: App {
         }
         .menuBarExtraStyle(.window)
         .commands {
-            ApplicationCommands(vm: appDelegate.dogViewModel)
+            ApplicationCommands()
         }
 
         Settings {
@@ -26,18 +26,11 @@ struct PomodoroPupApp: App {
 }
 
 private struct ApplicationCommands: Commands {
-    @ObservedObject var vm: DogViewModel
-
     var body: some Commands {
         // These are ordinary application commands, active only when this app
         // has focus. No global keyboard monitor takes keys from another app.
-        CommandGroup(replacing: .appSettings) {
-            SettingsLink {
-                Text(NSLocalizedString("settings.title", comment: ""))
-            }
-            .keyboardShortcut(",", modifiers: .command)
-            .disabled(vm.storageError != nil)
-        }
+        // The Settings scene supplies the standard Settings… / Command-comma item.
+        // Adding another SettingsLink here duplicates it in the native app menu.
         CommandGroup(replacing: .appTermination) {
             Button(NSLocalizedString("button.quit", comment: "")) {
                 NSApplication.shared.terminate(nil)

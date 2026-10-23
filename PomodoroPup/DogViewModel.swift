@@ -194,7 +194,9 @@ final class DogViewModel: ObservableObject {
     }
 
     func pauseTimer() {
-        update {
+        // Settle a deadline reached before the click, but do not announce a new
+        // running phase when this transaction's final state is paused or waiting.
+        update(emitFeedback: false) {
             _ = consumeElapsedTime()
             stopRunning()
             restoredSession = false
@@ -213,7 +215,9 @@ final class DogViewModel: ObservableObject {
     }
 
     func resetTimer() {
-        update {
+        // Completed work and goal markers still persist at the boundary. The
+        // user's explicit stop suppresses transition sounds and notifications.
+        update(emitFeedback: false) {
             _ = consumeElapsedTime()
             stopRunning()
             timerState = .stopped

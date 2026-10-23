@@ -63,6 +63,93 @@ final class NotificationFeedbackTests: XCTestCase {
         fixture.model.refresh()
         XCTAssertEqual(fixture.messages.count, 1)
     }
+
+    func testPausingAtWorkDeadlineSilentlyPreservesCompletionGoalAndAchievement() async throws {
+        let fixture = FeedbackFixture()
+        fixture.startTenthWorkSession()
+        fixture.clock.advance(60)
+        fixture.model.pauseTimer()
+
+        XCTAssertTrue(fixture.messages.isEmpty)
+        XCTAssertEqual(fixture.model.timerState, .onBreak)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+        XCTAssertEqual(fixture.model.completedPomodoros, 10)
+        XCTAssertTrue(fixture.model.unlockedAchievements.contains(AchievementType.novice.rawValue))
+        let state = try fixture.savedState()
+        XCTAssertEqual(state.completedPomodoros, 10)
+        XCTAssertEqual(state.dailyCounts[fixture.model.lastActiveDate], 10)
+        XCTAssertEqual(state.lastGoalNotificationDay, fixture.model.lastActiveDate)
+        XCTAssertTrue(state.unlockedAchievements.contains(AchievementType.novice.rawValue))
+        XCTAssertEqual(state.timer?.phase, .onBreak)
+        XCTAssertEqual(state.timer?.wasRunning, false)
+    }
+
+    func testResettingAtWorkDeadlineSilentlyPreservesCompletionGoalAndAchievement() async throws {
+        let fixture = FeedbackFixture()
+        fixture.startTenthWorkSession()
+        fixture.clock.advance(60)
+        fixture.model.resetTimer()
+
+        XCTAssertTrue(fixture.messages.isEmpty)
+        XCTAssertEqual(fixture.model.timerState, .stopped)
+        XCTAssertFalse(fixture.model.isTimerRunning)
+        XCTAssertEqual(fixture.model.remainingTime, 60)
+        XCTAssertEqual(fixture.model.completedPomodoros, 10)
+        XCTAssertTrue(fixture.model.unlockedAchievements.contains(AchievementType.novice.rawValue))
+        let state = try fixture.savedState()
+        XCTAssertEqual(state.completedPomodoros, 10)
+        XCTAssertEqual(state.dailyCounts[fixture.model.lastActiveDate], 10)
+        XCTAssertEqual(state.lastGoalNotificationDay, fixture.model.lastActiveDate)
+        XCTAssertTrue(state.unlockedAchievements.contains(AchievementType.novice.rawValue))
+        XCTAssertNil(state.timer)
+    }
+
+    func testPausingAtRestDeadlineSilentlySettlesRestWithEitherAutomationSetting() async throws {
+        for autoStart in [false, true] {
+            let fixture = FeedbackFixture()
+            fixture.model.autoStartNextSession = autoStart
+            fixture.model.startTimer()
+            fixture.clock.advance(60)
+            fixture.model.refresh()
+            fixture.messages.removeAll()
+            fixture.clock.advance(60)
+            fixture.model.pauseTimer()
+
+            XCTAssertTrue(fixture.messages.isEmpty)
+            XCTAssertEqual(fixture.model.timerState, .working)
+            XCTAssertFalse(fixture.model.isTimerRunning)
+            XCTAssertEqual(fixture.model.isWaitingForNextSession, !autoStart)
+            XCTAssertEqual(fixture.model.remainingTime, 60)
+            XCTAssertEqual(fixture.model.completedPomodoros, 1)
+            let state = try fixture.savedState()
+            XCTAssertEqual(state.totalBreakTime, 60)
+            XCTAssertEqual(state.timer?.wasRunning, false)
+        }
+    }
+
+    func testResettingAtRestDeadlineSilentlySettlesRestWithEitherAutomationSetting() async throws {
+        for autoStart in [false, true] {
+            let fixture = FeedbackFixture()
+            fixture.model.autoStartNextSession = autoStart
+            fixture.model.startTimer()
+            fixture.clock.advance(60)
+            fixture.model.refresh()
+            fixture.messages.removeAll()
+            fixture.clock.advance(60)
+            fixture.model.resetTimer()
+
+            XCTAssertTrue(fixture.messages.isEmpty)
+            XCTAssertEqual(fixture.model.timerState, .stopped)
+            XCTAssertFalse(fixture.model.isTimerRunning)
+            XCTAssertFalse(fixture.model.isWaitingForNextSession)
+            XCTAssertEqual(fixture.model.remainingTime, 60)
+            XCTAssertEqual(fixture.model.completedPomodoros, 1)
+            let state = try fixture.savedState()
+            XCTAssertEqual(state.totalBreakTime, 60)
+            XCTAssertNil(state.timer)
+        }
+    }
 }
 
 private final class FeedbackClock: TimerClock {
@@ -103,6 +190,22 @@ private final class FeedbackFixture {
         model.animationEnabled = false
         model.workDuration = 60
         model.breakDuration = 60
+    }
+
+    func startTenthWorkSession() {
+        model.dailyGoal = 10
+        for _ in 0..<9 {
+            model.startTimer()
+            clock.advance(60)
+            model.refresh()
+            model.skipPhase()
+        }
+        messages.removeAll()
+        model.startTimer()
+    }
+
+    func savedState() throws -> PersistedState {
+        try StateStore(defaults: defaults).load(now: clock.now, calendar: .current)
     }
 
     deinit { defaults.removePersistentDomain(forName: suite) }

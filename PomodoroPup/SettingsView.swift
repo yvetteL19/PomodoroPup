@@ -90,12 +90,13 @@ struct SettingsView: View {
                     notificationControls
                 }
                 Section(NSLocalizedString("settings.statistics", comment: "")) {
-                    LabeledContent(NSLocalizedString("settings.total_pomodoros", comment: ""), value: "\(vm.completedPomodoros)")
-                    LabeledContent(NSLocalizedString("settings.today", comment: ""), value: "\(vm.todayPomodoros)")
-                    LabeledContent(NSLocalizedString("settings.streak_days", comment: ""), value: "\(vm.consecutiveDays) \(NSLocalizedString("settings.days", comment: ""))")
-                    LabeledContent(NSLocalizedString("settings.streak_pomodoros", comment: ""), value: "\(vm.currentStreakPomodoros)")
-                    LabeledContent(NSLocalizedString("settings.total_break", comment: ""), value: "\(vm.totalBreakTime / 60) \(NSLocalizedString("settings.minutes_unit", comment: ""))")
+                    statisticRow("settings.total_pomodoros", value: "\(vm.completedPomodoros)")
+                    statisticRow("settings.today", value: "\(vm.todayPomodoros)")
+                    statisticRow("settings.streak_days", value: "\(vm.consecutiveDays) \(NSLocalizedString("settings.days", comment: ""))")
+                    statisticRow("settings.streak_pomodoros", value: "\(vm.currentStreakPomodoros)")
+                    statisticRow("settings.total_break", value: "\(vm.totalBreakTime / 60) \(NSLocalizedString("settings.minutes_unit", comment: ""))")
                 }
+                .accessibilityElement(children: .contain)
             }
             .formStyle(.grouped)
             .disabled(vm.storageError != nil)
@@ -112,6 +113,15 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await notificationService.refresh() }
         }
+    }
+
+    private func statisticRow(_ labelKey: String, value: String) -> some View {
+        let label = NSLocalizedString(labelKey, comment: "")
+        return LabeledContent(label, value: value)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityValue(value)
+            .accessibilityAddTraits(.isStaticText)
     }
 
     private var notificationControls: some View {
